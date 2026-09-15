@@ -14,7 +14,13 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/api/listings', listingsRoute);
 app.use('/api/ads', adsRoute);
 
-app.get('/api/health', (req, res) => res.json({ ok: true }));
+app.get('/api/health', (req, res) => res.json({
+  ok: true,
+  hasClientId: Boolean(process.env.WALMART_CLIENT_ID),
+  hasClientSecret: Boolean(process.env.WALMART_CLIENT_SECRET),
+  clientIdLength: (process.env.WALMART_CLIENT_ID || '').length,
+  clientSecretLength: (process.env.WALMART_CLIENT_SECRET || '').length
+}));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Walmart automation tool running on port ${PORT}`));

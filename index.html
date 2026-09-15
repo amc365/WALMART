@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Walmart Account Dashboard</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background:#f5f6f8; margin:0; padding:24px; color:#1a1a1a; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  h2 { font-size:16px; margin-top:32px; }
+  .card { background:#fff; border-radius:8px; padding:16px; box-shadow:0 1px 3px rgba(0,0,0,.08); margin-top:12px; }
+  table { width:100%; border-collapse: collapse; font-size:13px; }
+  th, td { text-align:left; padding:8px; border-bottom:1px solid #eee; }
+  .issue { color:#b3261e; font-weight:600; }
+  .ok { color:#1e7e34; }
+  button { cursor:pointer; border:none; border-radius:4px; padding:6px 10px; font-size:12px; margin-right:4px; }
+  .approve { background:#1e7e34; color:#fff; }
+  .reject { background:#b3261e; color:#fff; }
+  .muted { color:#888; font-size:12px; }
+  #summary { font-size:13px; color:#444; }
+</style>
+</head>
+<body>
+  <h1>Walmart Account — Live Status</h1>
+  <div id="summary" class="muted">Loading…</div>
+
+  <h2>Listing Health</h2>
+  <div class="card">
+    <table id="listingsTable">
+      <thead><tr><th>SKU</th><th>Product</th><th>Lifecycle</th><th>Published</th><th>Qty</th><th>Issues</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <h2>Ads / Promotions — Pending Approval</h2>
+  <div class="card" id="adsStatus" class="muted"></div>
+  <div class="card">
+    <table id="pendingTable">
+      <thead><tr><th>Type</th><th>Target</th><th>Details</th><th>Status</th><th>Action</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+<script>
+async function loadListings() {
+  const res = await fetch('/api/listings');
+  const data = await res.json();
+  const tbody = document.querySelector('#listingsTable tbody');
+  tbody.innerHTML = '';
+  if (data.error) {
+    document.getElementById('summary').textContent = 'Error: ' + data.error;
+    return;
+  }
+  document.getElementById('summary').textContent =
+    `${data.totalItems} listings — ${data.flaggedCount} need attention`;
+  data.items.forEach(item => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${item.sku || ''}</td>
+      <td>${item.productName || ''}</td>
+      <td>${item.lifecycleStatus || ''}</td>
+      <td>${item.publishedStatus || ''}</td>
+      <td>${item.availableQty ?? ''}</td>
+      <td class="${item.issues.length ? 'issue' : 'ok'}">${item.issues.length ? item.issues.join(', ') : 'OK'}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+async function loadAdsStatus() {
+  const res = await fetch('/api/ads/status');
+  const data = await res.json();
+  document.getElementById('adsStatus').textContent = data.message;
+}
+
+async function loadPending() {
+  const res = await fetch('/api/ads/pending');
+  const data = await res.json();
+  const tbody = document.querySelector('#pendingTable tbody');
+  tbody.innerHTML = '';
+  data.pending.forEach(a => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${a.type}</td>
+      <td>${a.target}</td>
+      <td>${JSON.stringify(a.details)}</td>
+      <td>${a.status}</td>
+      <td>
+        <button class="approve" onclick="approve('${a.id}')">Approve</button>
+        <button class="reject" onclick="reject('${a.id}')">Reject</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+async function approve(id) {
+  await fetch(`/api/ads/pending/${id}/approve`, { method: 'POST' });
+  loadPending();
+}
+async function reject(id) {
+  await fetch(`/api/ads/pending/${id}/reject`, { method: 'POST' });
+  loadPending();
+}
+
+loadListings();
+loadAdsStatus();
+loadPending();
+</script>
+</body>
+</html>
