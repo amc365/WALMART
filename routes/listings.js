@@ -19,9 +19,8 @@ router.get('/', async (req, res) => {
     let page = 0;
 
     do {
-      const url = nextCursor
-        ? `https://marketplace.walmartapis.com/v3/items?nextCursor=${encodeURIComponent(nextCursor)}`
-        : `https://marketplace.walmartapis.com/v3/items?limit=50`;
+      const cursor = nextCursor || '*';
+      const url = `https://marketplace.walmartapis.com/v3/items?limit=200&nextCursor=${encodeURIComponent(cursor)}`;
 
       const r = await fetch(url, { headers });
       if (!r.ok) {
@@ -29,7 +28,7 @@ router.get('/', async (req, res) => {
         return res.status(r.status).json({ error: 'Walmart items fetch failed', detail: text });
       }
       const data = await r.json();
-      allItems = allItems.concat(data.ItemResponse || []);
+      allItems = allItems.concat(data.ItemResponse || data.itemResponse || []);
       nextCursor = data.nextCursor || null;
       page++;
     } while (nextCursor && page < 20);
