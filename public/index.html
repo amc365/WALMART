@@ -15,6 +15,7 @@
   button { cursor:pointer; border:none; border-radius:4px; padding:6px 10px; font-size:12px; margin-right:4px; }
   .approve { background:#1e7e34; color:#fff; }
   .reject { background:#b3261e; color:#fff; }
+  .stage { background:#1a73e8; color:#fff; }
   .muted { color:#888; font-size:12px; }
   #summary { font-size:13px; color:#444; }
 </style>
@@ -23,10 +24,18 @@
   <h1>Walmart Account — Live Status</h1>
   <div id="summary" class="muted">Loading…</div>
 
-  <h2>Listing Health</h2>
+  <h2>Listings needing action (retired/archived SKUs skipped)</h2>
   <div class="card">
     <table id="listingsTable">
-      <thead><tr><th>SKU</th><th>Product</th><th>Lifecycle</th><th>Published</th><th>Qty</th><th>Issues</th></tr></thead>
+      <thead><tr><th>SKU</th><th>Product</th><th>Qty</th><th>Published</th><th>Issue</th><th>Action</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <h2>Pending Approval — Listing Fixes</h2>
+  <div class="card">
+    <table id="fixPendingTable">
+      <thead><tr><th>SKU</th><th>Fix</th><th>Status</th><th>Action</th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
@@ -51,19 +60,57 @@ async function loadListings() {
     return;
   }
   document.getElementById('summary').textContent =
-    `${data.totalItems} listings — ${data.flaggedCount} need attention`;
-  data.items.forEach(item => {
+    `${data.totalItems} listings — ${data.ignoredRetiredArchived} retired/archived (skipped) — ${data.flaggedCount} need action`;
+  data.flagged.forEach(item => {
     const tr = document.createElement('tr');
+    const fixLabel = item.issueType === 'has_stock_not_live' ? 'Publish' : 'Deactivate';
     tr.innerHTML = `
       <td>${item.sku || ''}</td>
       <td>${item.productName || ''}</td>
-      <td>${item.lifecycleStatus || ''}</td>
-      <td>${item.publishedStatus || ''}</td>
       <td>${item.availableQty ?? ''}</td>
-      <td class="${item.issues.length ? 'issue' : 'ok'}">${item.issues.length ? item.issues.join(', ') : 'OK'}</td>
+      <td>${item.publishedStatus || ''}</td>
+      <td class="issue">${item.issue}</td>
+      <td><button class="stage" onclick="stageFix('${item.sku}','${item.issueType}')">${fixLabel}</button></td>
     `;
     tbody.appendChild(tr);
   });
+}
+
+async function stageFix(sku, issueType) {
+  await fetch('/api/listings/pending', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sku, issueType })
+  });
+  loadFixPending();
+}
+
+async function loadFixPending() {
+  const res = await fetch('/api/listings/pending');
+  const data = await res.json();
+  const tbody = document.querySelector('#fixPendingTable tbody');
+  tbody.innerHTML = '';
+  data.pending.forEach(f => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${f.sku}</td>
+      <td>${f.action}</td>
+      <td>${f.status}</td>
+      <td>
+        <button class="approve" onclick="approveFix('${f.id}')">Approve</button>
+        <button class="reject" onclick="rejectFix('${f.id}')">Reject</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+async function approveFix(id) {
+  await fetch(`/api/listings/pending/${id}/approve`, { method: 'POST' });
+  loadFixPending();
+}
+async function rejectFix(id) {
+  await fetch(`/api/listings/pending/${id}/reject`, { method: 'POST' });
+  loadFixPending();
 }
 
 async function loadAdsStatus() {
@@ -92,7 +139,6 @@ async function loadPending() {
     tbody.appendChild(tr);
   });
 }
-
 async function approve(id) {
   await fetch(`/api/ads/pending/${id}/approve`, { method: 'POST' });
   loadPending();
@@ -103,6 +149,7 @@ async function reject(id) {
 }
 
 loadListings();
+loadFixPending();
 loadAdsStatus();
 loadPending();
 </script>
