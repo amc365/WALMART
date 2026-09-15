@@ -33,6 +33,10 @@ router.get('/', async (req, res) => {
       page++;
     } while (nextCursor && page < 20);
 
+    if (allItems.length > 0) {
+      console.log('SAMPLE_ITEM:', JSON.stringify(allItems[0]));
+    }
+
     const isIntentionallyDown = (item) =>
       ['RETIRED', 'ARCHIVED'].includes(item.lifecycleStatus);
 
