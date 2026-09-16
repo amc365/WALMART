@@ -59,7 +59,8 @@
   </div>
 
   <h2>Ads / Promotions — Pending Approval</h2>
-  <div class="card" id="adsStatus" class="muted"></div>
+  <div id="adsBanner" class="banner"></div>
+  <div class="card muted" id="adsStatus"></div>
   <div class="card">
     <table id="pendingTable">
       <thead><tr><th>Type</th><th>Target</th><th>Details</th><th>Status</th><th>Action</th></tr></thead>
@@ -207,7 +208,19 @@ async function rejectFix(id) {
 async function loadAdsStatus() {
   const res = await fetch('/api/ads/status');
   const data = await res.json();
-  document.getElementById('adsStatus').textContent = data.message;
+  const note = document.getElementById('adsStatus');
+  const banner = document.getElementById('adsBanner');
+
+  // Don't let a not-yet-built section look like a working one.
+  if (data.built === false) {
+    showBanner(banner, 'warn',
+      '<strong>Not connected to Walmart</strong>' + esc(data.message));
+    note.style.display = 'none';
+  } else {
+    banner.style.display = 'none';
+    note.style.display = '';
+    note.textContent = data.message;
+  }
 }
 
 async function loadPending() {

@@ -2,6 +2,7 @@ const express = require('express');
 const fetch = require('node-fetch');
 const { walmartHeaders } = require('../lib/walmartAuth');
 const { getStockBySku } = require('../lib/inventory');
+const { createStore } = require('../lib/store');
 
 const router = express.Router();
 
@@ -11,8 +12,9 @@ const ITEMS_PAGE_SIZE = 200;
 // the real total.
 const MAX_ITEM_PAGES = Number(process.env.WALMART_MAX_ITEM_PAGES || 500);
 
-// Pending fix queue — nothing here executes automatically, same pattern as /api/ads
-const pendingFixes = [];
+// Pending fix queue — nothing here executes automatically, same pattern as /api/ads.
+// Persisted to disk so a restart cannot erase staged or approved work.
+const pendingFixes = createStore('listing-fixes');
 
 async function fetchAllItems() {
   let allItems = [];
@@ -153,33 +155,41 @@ router.post('/pending', (req, res) => {
     status: 'awaiting_approval',
     createdAt: new Date().toISOString()
   };
-  pendingFixes.push(fix);
+  pendingFixes.add(fix);
   res.json({ staged: fix });
 });
 
 router.get('/pending', (req, res) => {
-  res.json({ pending: pendingFixes });
+  res.json({ pending: pendingFixes.all() });
 });
 
 // POST /api/listings/pending/:id/approve — actually execute the fix
 router.post('/pending/:id/approve', async (req, res) => {
-  const fix = pendingFixes.find(f => f.id === req.params.id);
+  const fix = pendingFixes.find(req.params.id);
   if (!fix) return res.status(404).json({ error: 'Fix not found' });
+  if (fix.status !== 'awaiting_approval') {
+    return res.status(409).json({ error: `Fix is already ${fix.status}` });
+  }
 
   // TODO: wire to the real Walmart Marketplace API call for fix.action
   // (item Setup/Feeds API to publish, or Inventory API to zero out / pause).
-  fix.status = 'approved_not_yet_wired';
+  const updated = pendingFixes.update(req.params.id, {
+    status: 'approved_not_yet_wired',
+    approvedAt: new Date().toISOString()
+  });
   res.json({
-    result: fix,
+    result: updated,
     note: 'Approval recorded. Actual Walmart API call for this fix is not wired up yet.'
   });
 });
 
 router.post('/pending/:id/reject', (req, res) => {
-  const idx = pendingFixes.findIndex(f => f.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Fix not found' });
-  pendingFixes[idx].status = 'rejected';
-  res.json({ result: pendingFixes[idx] });
+  if (!pendingFixes.find(req.params.id)) return res.status(404).json({ error: 'Fix not found' });
+  const updated = pendingFixes.update(req.params.id, {
+    status: 'rejected',
+    rejectedAt: new Date().toISOString()
+  });
+  res.json({ result: updated });
 });
 
 module.exports = router;

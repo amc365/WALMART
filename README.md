@@ -6,7 +6,9 @@ On-demand tool (open it when logged in — no 24/7 background jobs).
 - Pulls all listings from Walmart Marketplace API and cross-checks each against its real stock level
 - Flags only genuine mismatches: in stock but not published, or published with zero stock
 - Retired/archived SKUs are skipped; listings whose stock can't be read are reported as **unverified**, never as healthy
-- Ads/Promotions panel: shows a pending-approval queue — nothing executes until you click Approve
+- Ads/Promotions panel: a manual pending-approval queue. **Not connected to Walmart Connect yet** —
+  it cannot read or change live campaigns, and credentials alone will not enable it
+- Approval queues are saved to disk, so a restart no longer erases staged or approved items
 
 ## How stock is read
 Walmart has no bulk "list all inventory" endpoint. Stock comes from the inventory
@@ -30,12 +32,26 @@ Push to GitHub, then create a Render web service pointing at this repo.
 - Start command: `npm start`
 - Add env vars: WALMART_CLIENT_ID, WALMART_CLIENT_SECRET
 
+## Where approvals are stored
+Staged and approved items are written to `data/*.json` (override the location with
+`DATA_DIR`). The folder is gitignored.
+
+**On Render:** the normal filesystem is wiped on every redeploy. To keep approval
+history across deploys, attach a Persistent Disk and point `DATA_DIR` at its mount
+path. Without that, the queue survives restarts within a deploy but not a redeploy.
+
 ## Optional env vars
 - `WALMART_MAX_ITEM_PAGES` (default 500) — safety ceiling on listing pagination at
   200 items/page. If the cap is hit the dashboard says the list is incomplete
   instead of presenting a truncated total as the real count.
 - `WALMART_PER_SKU_INVENTORY_LIMIT` (default 500) — cap on per-SKU inventory calls
   in the fallback path.
+- `DATA_DIR` (default `./data`) — where approval queues are stored.
 
 ## Not wired up yet
-- Walmart Connect (Ads) API calls — needs WALMART_ADS_API_KEY / WALMART_ADVERTISER_ID
+- **Walmart Connect (Ads) integration is not built.** There is no code that reads
+  campaigns from or sends changes to Walmart Connect. Setting
+  `WALMART_ADS_API_KEY` / `WALMART_ADVERTISER_ID` does not enable it. Building it
+  requires Walmart Connect API access, which is granted separately from the
+  Marketplace API keys used for listings.
+- Approving a listing fix records the approval but does not yet call Walmart.
