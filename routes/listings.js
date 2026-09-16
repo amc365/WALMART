@@ -31,11 +31,34 @@ router.get('/', async (req, res) => {
       allItems = allItems.concat(data.ItemResponse || data.itemResponse || []);
       nextCursor = data.nextCursor || null;
       page++;
-    } while (nextCursor && page < 20);
-
     if (allItems.length > 0) {
       console.log('SAMPLE_ITEM:', JSON.stringify(allItems[0]));
     }
+
+    // Items API doesn't include stock — fetch it separately from the Inventory API and merge by SKU.
+    const qtyBySku = {};
+    let invCursor = null;
+    let invPage = 0;
+    do {
+      const cursor = invCursor || '*';
+      const invUrl = `https://marketplace.walmartapis.com/v3/inventories?limit=50&nextCursor=${encodeURIComponent(cursor)}`;
+      const invHeaders = await walmartHeaders();
+      const invRes = await fetch(invUrl, { headers: invHeaders });
+      if (!invRes.ok) break; // don't fail the whole request if inventory lookup has trouble
+      const invData = await invRes.json();
+      const list = invData.elements?.inventories || invData.inventories || invData.ItemResponse || [];
+      list.forEach(inv => {
+        const amt = inv.quantity?.amount ?? inv.availableQuantity ?? null;
+        if (inv.sku && amt !== null) qtyBySku[inv.sku] = amt;
+      });
+      invCursor = invData.nextCursor || null;
+      invPage++;
+    } while (invCursor && invPage < 100);
+
+    allItems = allItems.map(item => ({
+      ...item,
+      availableQty: qtyBySku[item.sku] ?? null
+    }));
 
     const isIntentionallyDown = (item) =>
       ['RETIRED', 'ARCHIVED'].includes(item.lifecycleStatus);
