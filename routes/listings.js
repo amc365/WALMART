@@ -31,6 +31,8 @@ router.get('/', async (req, res) => {
       allItems = allItems.concat(data.ItemResponse || data.itemResponse || []);
       nextCursor = data.nextCursor || null;
       page++;
+    } while (nextCursor && page < 20);
+
     if (allItems.length > 0) {
       console.log('SAMPLE_ITEM:', JSON.stringify(allItems[0]));
     }
