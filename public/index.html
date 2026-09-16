@@ -18,16 +18,34 @@
   .stage { background:#1a73e8; color:#fff; }
   .muted { color:#888; font-size:12px; }
   #summary { font-size:13px; color:#444; }
+  .banner { border-radius:8px; padding:12px 16px; margin-top:12px; font-size:13px; line-height:1.5; display:none; }
+  .banner.error { background:#fdecea; border:1px solid #f5c6c2; color:#8c1d18; }
+  .banner.warn  { background:#fff6e5; border:1px solid #f5dfae; color:#7a4f01; }
+  .banner strong { display:block; margin-bottom:4px; font-size:14px; }
+  .banner code { background:rgba(0,0,0,.06); padding:1px 4px; border-radius:3px; font-size:12px; }
 </style>
 </head>
 <body>
   <h1>Walmart Account — Live Status</h1>
   <div id="summary" class="muted">Loading…</div>
+  <div id="stockBanner" class="banner"></div>
+  <div id="truncBanner" class="banner warn"></div>
 
   <h2>Listings needing action (retired/archived SKUs skipped)</h2>
   <div class="card">
     <table id="listingsTable">
       <thead><tr><th>SKU</th><th>Product</th><th>Qty</th><th>Published</th><th>Issue</th><th>Action</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <h2 id="unverifiedHeading" style="display:none">Unverified — stock could not be read</h2>
+  <div class="card" id="unverifiedCard" style="display:none">
+    <div class="muted" style="margin-bottom:8px">
+      These listings were <strong>not</strong> checked. They are not known to be healthy.
+    </div>
+    <table id="unverifiedTable">
+      <thead><tr><th>SKU</th><th>Product</th><th>Published</th><th>Status</th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
@@ -50,38 +68,113 @@
   </div>
 
 <script>
+// Product names and SKUs are untrusted strings — escape before injecting.
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => (
+    { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]
+  ));
+}
+
+function showBanner(el, cls, html) {
+  el.className = 'banner ' + cls;
+  el.innerHTML = html;
+  el.style.display = 'block';
+}
+
 async function loadListings() {
   const res = await fetch('/api/listings');
   const data = await res.json();
   const tbody = document.querySelector('#listingsTable tbody');
+  const stockBanner = document.getElementById('stockBanner');
+  const truncBanner = document.getElementById('truncBanner');
   tbody.innerHTML = '';
+  stockBanner.style.display = 'none';
+  truncBanner.style.display = 'none';
+
   if (data.error) {
+    showBanner(stockBanner, 'error',
+      '<strong>Could not load listings</strong>' + esc(data.error) +
+      (data.detail ? '<br><code>' + esc(String(data.detail).slice(0, 400)) + '</code>' : ''));
     document.getElementById('summary').textContent = 'Error: ' + data.error;
     return;
   }
-  document.getElementById('summary').textContent =
-    `${data.totalItems} listings — ${data.ignoredRetiredArchived} retired/archived (skipped) — ${data.flaggedCount} need action`;
+
+  const parts = [
+    data.totalItems + ' listings',
+    data.ignoredRetiredArchived + ' retired/archived (skipped)',
+    data.flaggedCount + ' need action'
+  ];
+  if (data.stockUnknownCount > 0) parts.push(data.stockUnknownCount + ' unverified');
+  document.getElementById('summary').textContent = parts.join(' — ');
+
+  // A stock outage must never render as a clean account.
+  const errs = (data.stock && data.stock.errors || []).map(e => '<code>' + esc(e) + '</code>').join('<br>');
+  if (data.status === 'stock_unavailable') {
+    showBanner(stockBanner, 'error',
+      '<strong>Stock data unavailable — listing health was NOT checked</strong>' +
+      'No inventory could be read, so the “need action” count below is meaningless, not a clean bill of health.' +
+      (errs ? '<br><br>' + errs : ''));
+  } else if (data.status === 'degraded') {
+    showBanner(stockBanner, 'warn',
+      '<strong>Partial stock data</strong>' +
+      esc(data.stock.resolved) + ' of ' + esc(data.stock.checked) +
+      ' active listings were stock-checked. ' + esc(data.stockUnknownCount) +
+      ' could not be verified and are listed below.' +
+      (errs ? '<br><br>' + errs : ''));
+  }
+
+  if (data.truncated) {
+    showBanner(truncBanner, 'warn',
+      '<strong>Listing list is incomplete</strong>' +
+      'Hit the pagination cap after ' + esc(data.pagesFetched) +
+      ' pages — Walmart still had more listings. Totals above undercount the account. ' +
+      'Raise <code>WALMART_MAX_ITEM_PAGES</code> to fetch the rest.');
+  }
+
   data.flagged.forEach(item => {
     const tr = document.createElement('tr');
     const fixLabel = item.issueType === 'has_stock_not_live' ? 'Publish' : 'Deactivate';
-    tr.innerHTML = `
-      <td>${item.sku || ''}</td>
-      <td>${item.productName || ''}</td>
-      <td>${item.availableQty ?? ''}</td>
-      <td>${item.publishedStatus || ''}</td>
-      <td class="issue">${item.issue}</td>
-      <td><button class="stage" onclick="stageFix('${item.sku}','${item.issueType}')">${fixLabel}</button></td>
-    `;
+    tr.innerHTML =
+      '<td>' + esc(item.sku) + '</td>' +
+      '<td>' + esc(item.productName) + '</td>' +
+      '<td>' + esc(item.availableQty ?? '') + '</td>' +
+      '<td>' + esc(item.publishedStatus) + '</td>' +
+      '<td class="issue">' + esc(item.issue) + '</td>' +
+      '<td><button class="stage">' + fixLabel + '</button></td>';
+    tr.querySelector('button').addEventListener('click',
+      () => stageFix(item.sku, item.issueType));
     tbody.appendChild(tr);
+  });
+
+  // Unverified listings get their own section — no fix button, since we have
+  // no stock reading to base a publish/deactivate decision on.
+  const unTbody = document.querySelector('#unverifiedTable tbody');
+  const unknown = data.unknown || [];
+  unTbody.innerHTML = '';
+  document.getElementById('unverifiedHeading').style.display = unknown.length ? '' : 'none';
+  document.getElementById('unverifiedCard').style.display = unknown.length ? '' : 'none';
+  unknown.forEach(item => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(item.sku) + '</td>' +
+      '<td>' + esc(item.productName) + '</td>' +
+      '<td>' + esc(item.publishedStatus) + '</td>' +
+      '<td class="issue">' + esc(item.issue) + '</td>';
+    unTbody.appendChild(tr);
   });
 }
 
 async function stageFix(sku, issueType) {
-  await fetch('/api/listings/pending', {
+  const r = await fetch('/api/listings/pending', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sku, issueType })
   });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    alert('Could not stage fix: ' + (e.error || r.status));
+    return;
+  }
   loadFixPending();
 }
 
@@ -92,24 +185,22 @@ async function loadFixPending() {
   tbody.innerHTML = '';
   data.pending.forEach(f => {
     const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${f.sku}</td>
-      <td>${f.action}</td>
-      <td>${f.status}</td>
-      <td>
-        <button class="approve" onclick="approveFix('${f.id}')">Approve</button>
-        <button class="reject" onclick="rejectFix('${f.id}')">Reject</button>
-      </td>
-    `;
+    tr.innerHTML =
+      '<td>' + esc(f.sku) + '</td>' +
+      '<td>' + esc(f.action) + '</td>' +
+      '<td>' + esc(f.status) + '</td>' +
+      '<td><button class="approve">Approve</button><button class="reject">Reject</button></td>';
+    tr.querySelector('.approve').addEventListener('click', () => approveFix(f.id));
+    tr.querySelector('.reject').addEventListener('click', () => rejectFix(f.id));
     tbody.appendChild(tr);
   });
 }
 async function approveFix(id) {
-  await fetch(`/api/listings/pending/${id}/approve`, { method: 'POST' });
+  await fetch('/api/listings/pending/' + encodeURIComponent(id) + '/approve', { method: 'POST' });
   loadFixPending();
 }
 async function rejectFix(id) {
-  await fetch(`/api/listings/pending/${id}/reject`, { method: 'POST' });
+  await fetch('/api/listings/pending/' + encodeURIComponent(id) + '/reject', { method: 'POST' });
   loadFixPending();
 }
 
@@ -126,25 +217,23 @@ async function loadPending() {
   tbody.innerHTML = '';
   data.pending.forEach(a => {
     const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${a.type}</td>
-      <td>${a.target}</td>
-      <td>${JSON.stringify(a.details)}</td>
-      <td>${a.status}</td>
-      <td>
-        <button class="approve" onclick="approve('${a.id}')">Approve</button>
-        <button class="reject" onclick="reject('${a.id}')">Reject</button>
-      </td>
-    `;
+    tr.innerHTML =
+      '<td>' + esc(a.type) + '</td>' +
+      '<td>' + esc(a.target) + '</td>' +
+      '<td>' + esc(JSON.stringify(a.details)) + '</td>' +
+      '<td>' + esc(a.status) + '</td>' +
+      '<td><button class="approve">Approve</button><button class="reject">Reject</button></td>';
+    tr.querySelector('.approve').addEventListener('click', () => approve(a.id));
+    tr.querySelector('.reject').addEventListener('click', () => reject(a.id));
     tbody.appendChild(tr);
   });
 }
 async function approve(id) {
-  await fetch(`/api/ads/pending/${id}/approve`, { method: 'POST' });
+  await fetch('/api/ads/pending/' + encodeURIComponent(id) + '/approve', { method: 'POST' });
   loadPending();
 }
 async function reject(id) {
-  await fetch(`/api/ads/pending/${id}/reject`, { method: 'POST' });
+  await fetch('/api/ads/pending/' + encodeURIComponent(id) + '/reject', { method: 'POST' });
   loadPending();
 }
 
