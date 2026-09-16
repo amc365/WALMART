@@ -41,21 +41,29 @@ router.get('/', async (req, res) => {
     const qtyBySku = {};
     let invCursor = null;
     let invPage = 0;
+    let invDebug = { calls: 0, totalFetched: 0, sampleRaw: null, lastStatus: null, lastError: null };
     do {
       const cursor = invCursor || '*';
       const invUrl = `https://marketplace.walmartapis.com/v3/inventories?limit=50&nextCursor=${encodeURIComponent(cursor)}`;
       const invHeaders = await walmartHeaders();
       const invRes = await fetch(invUrl, { headers: invHeaders });
-      if (!invRes.ok) break; // don't fail the whole request if inventory lookup has trouble
+      invDebug.calls++;
+      invDebug.lastStatus = invRes.status;
+      if (!invRes.ok) {
+        invDebug.lastError = await invRes.text();
+        break;
+      }
       const invData = await invRes.json();
+      if (invDebug.sampleRaw === null) invDebug.sampleRaw = invData;
       const list = invData.elements?.inventories || invData.inventories || invData.ItemResponse || [];
+      invDebug.totalFetched += list.length;
       list.forEach(inv => {
         const amt = inv.quantity?.amount ?? inv.availableQuantity ?? null;
         if (inv.sku && amt !== null) qtyBySku[inv.sku] = amt;
       });
       invCursor = invData.nextCursor || null;
       invPage++;
-    } while (invCursor && invPage < 100);
+    } while (invCursor && invPage < 5); // capped low while debugging
 
     allItems = allItems.map(item => ({
       ...item,
@@ -100,7 +108,8 @@ router.get('/', async (req, res) => {
       ignoredRetiredArchived: allItems.filter(isIntentionallyDown).length,
       flaggedCount: flagged.length,
       flagged,
-      items: results
+      items: results,
+      _invDebug: invDebug
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
