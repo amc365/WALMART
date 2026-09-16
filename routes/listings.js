@@ -43,8 +43,9 @@ router.get('/', async (req, res) => {
     let invPage = 0;
     let invDebug = { calls: 0, totalFetched: 0, sampleRaw: null, lastStatus: null, lastError: null };
     do {
-      const cursor = invCursor || '*';
-      const invUrl = `https://marketplace.walmartapis.com/v3/inventories?limit=50&nextCursor=${encodeURIComponent(cursor)}`;
+      const invUrl = invCursor
+        ? `https://marketplace.walmartapis.com/v3/inventories?limit=50&nextCursor=${encodeURIComponent(invCursor)}`
+        : `https://marketplace.walmartapis.com/v3/inventories?limit=50`;
       const invHeaders = await walmartHeaders();
       const invRes = await fetch(invUrl, { headers: invHeaders });
       invDebug.calls++;
@@ -63,7 +64,7 @@ router.get('/', async (req, res) => {
       });
       invCursor = invData.nextCursor || null;
       invPage++;
-    } while (invCursor && invPage < 5); // capped low while debugging
+    } while (invCursor && invPage < 100);
 
     allItems = allItems.map(item => ({
       ...item,
