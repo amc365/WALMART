@@ -4,12 +4,16 @@
   "description": "On-demand Walmart Seller Center dashboard: listing health checks + ad/promotion management with approval-before-execute",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "monitor": "node monitor/run.js",
+    "monitor:login": "node monitor/run.js login",
+    "monitor:selftest": "node monitor/selftest/run.js"
   },
   "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "node-fetch": "^2.7.0",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5"
+    "playwright": "^1.63.0"
   }
 }

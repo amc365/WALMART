@@ -18,5 +18,21 @@ Push to GitHub, then create a Render web service pointing at this repo.
 - Start command: `npm start`
 - Add env vars: WALMART_CLIENT_ID, WALMART_CLIENT_SECRET
 
+## Seller Center monitor (browser agent)
+
+`monitor/` holds a Playwright agent that signs in to Seller Center and cycles
+through Dashboard, Orders, Items, Payments, Performance, Advertising and
+Reports, returning to the dashboard between sections. It stops and reports the
+section name and error on the first page that errors, times out, bounces to
+login or denies access, and keeps a status log in `monitor/logs/`.
+
+```bash
+npm run monitor:login      # sign in once by hand (2FA included); session is reused
+npm run monitor -- --hours=8
+npm run monitor:selftest   # verify the checks against a local mock, no account needed
+```
+
+See `monitor/README.md` for options, failure kinds and log formats.
+
 ## Not wired up yet
 - Walmart Connect (Ads) API calls — needs WALMART_ADS_API_KEY / WALMART_ADVERTISER_ID

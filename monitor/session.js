@@ -1,0 +1,163 @@
+// Browser lifecycle and Seller Center login.
+//
+// The session lives in a persistent Chromium profile, so a login done once by
+// hand (including 2FA) is reused by every later run. Scripted credentials are
+// supported but Walmart challenges fresh automated logins often enough that
+// the manual path is the reliable one.
+
+const fs = require('fs');
+const path = require('path');
+const { chromium } = require('playwright');
+const { LOGIN_URL_PATTERN } = require('./sections');
+const { withTimeout } = require('./util');
+
+class LoginError extends Error {
+  constructor(message, hint) {
+    super(message);
+    this.name = 'LoginError';
+    this.hint = hint;
+  }
+}
+
+const USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+
+async function openContext(config, { headless = config.headless } = {}) {
+  fs.mkdirSync(config.userDataDir, { recursive: true });
+  const context = await chromium.launchPersistentContext(config.userDataDir, {
+    headless,
+    slowMo: config.slowMoMs || undefined,
+    executablePath: config.browserPath || undefined,
+    viewport: { width: 1440, height: 900 },
+    userAgent: USER_AGENT,
+    args: [
+      '--disable-blink-features=AutomationControlled',
+      '--no-sandbox',
+      // Keeps a multi-hour run from generating a steady trickle of browser
+      // background traffic that has nothing to do with Seller Center.
+      '--disable-background-networking',
+      '--disable-component-update',
+      '--no-first-run',
+      '--no-default-browser-check'
+    ]
+  });
+  context.setDefaultTimeout(config.navTimeoutMs);
+  context.setDefaultNavigationTimeout(config.navTimeoutMs);
+  return context;
+}
+
+async function saveStorageState(context, config) {
+  fs.mkdirSync(path.dirname(config.storageStatePath), { recursive: true });
+  await context.storageState({ path: config.storageStatePath });
+}
+
+async function isLoginPage(page) {
+  if (LOGIN_URL_PATTERN.test(page.url())) return true;
+  return (await page.locator('input[type="password"]').count()) > 0;
+}
+
+async function looksChallenged(page) {
+  const text = ((await withTimeout(page.textContent('body'), 10000, '')) || '').slice(0, 20000);
+  return /verification code|two[- ]step|2fa|one[- ]time (code|passcode)|captcha|verify you are (a )?human|press and hold/i.test(text);
+}
+
+// Fills the Seller Center sign-in form. Selector lists are ordered most to
+// least specific because Walmart has shipped several versions of this page.
+async function scriptedLogin(page, config, log) {
+  if (!config.email || !config.password) {
+    throw new LoginError(
+      'Not signed in and no credentials available.',
+      'Run `npm run monitor:login` once to sign in by hand (2FA included); the session is reused afterwards. ' +
+        'Alternatively set WALMART_SC_EMAIL and WALMART_SC_PASSWORD.'
+    );
+  }
+
+  log.info('signing in with WALMART_SC_EMAIL');
+  const emailField = page.locator('#loginUsername, input[name="loginUsername"], input[type="email"], input[name="email"]').first();
+  await emailField.waitFor({ state: 'visible', timeout: config.navTimeoutMs });
+  await emailField.fill(config.email);
+
+  const passwordField = page.locator('#loginPassword, input[name="loginPassword"], input[type="password"]').first();
+  if (!(await passwordField.isVisible().catch(() => false))) {
+    await page.locator('button[type="submit"], button:has-text("Continue")').first().click();
+    await passwordField.waitFor({ state: 'visible', timeout: config.navTimeoutMs });
+  }
+  await passwordField.fill(config.password);
+  await page.locator('button[type="submit"], button:has-text("Sign in"), button:has-text("Sign In")').first().click();
+
+  await page.waitForLoadState('networkidle', { timeout: config.navTimeoutMs }).catch(() => {});
+
+  if (await looksChallenged(page)) {
+    throw new LoginError(
+      'Sign-in hit a verification challenge (2FA / bot check) that cannot be answered automatically.',
+      'Run `npm run monitor:login` to clear the challenge once by hand; the saved profile is then reused.'
+    );
+  }
+  if (await isLoginPage(page)) {
+    const message = await firstVisibleError(page);
+    throw new LoginError(`Sign-in did not complete${message ? `: ${message}` : ' (still on the sign-in page).'}`,
+      'Check WALMART_SC_EMAIL / WALMART_SC_PASSWORD, or sign in by hand with `npm run monitor:login`.');
+  }
+}
+
+async function firstVisibleError(page) {
+  const candidates = page.locator('[role="alert"], .alert, .error, [class*="error"]');
+  const count = Math.min(await candidates.count().catch(() => 0), 5);
+  for (let i = 0; i < count; i += 1) {
+    const text = (await candidates.nth(i).innerText().catch(() => '')).trim();
+    if (text) return text.replace(/\s+/g, ' ').slice(0, 200);
+  }
+  return null;
+}
+
+// Lands on the dashboard with an authenticated session, or throws LoginError.
+async function ensureLoggedIn(page, config, log) {
+  const response = await page.goto(config.baseUrl + '/', {
+    waitUntil: 'domcontentloaded',
+    timeout: config.navTimeoutMs
+  });
+  if (response && response.status() >= 500) {
+    throw new LoginError(`Seller Center returned HTTP ${response.status()} on the dashboard.`,
+      'Walmart may be having an outage — check status and retry.');
+  }
+  await page.waitForLoadState('networkidle', { timeout: config.navTimeoutMs }).catch(() => {});
+
+  if (await isLoginPage(page)) {
+    await scriptedLogin(page, config, log);
+    await page.goto(config.baseUrl + '/', { waitUntil: 'domcontentloaded', timeout: config.navTimeoutMs });
+    await page.waitForLoadState('networkidle', { timeout: config.navTimeoutMs }).catch(() => {});
+    if (await isLoginPage(page)) {
+      throw new LoginError('Still on the sign-in page after signing in.', 'The session is not sticking — sign in by hand with `npm run monitor:login`.');
+    }
+  }
+
+  log.info(`signed in — dashboard reachable at ${page.url()}`);
+  return true;
+}
+
+// Headed one-off: opens the browser and waits for a human to finish signing in.
+async function interactiveLogin(config, log) {
+  const context = await openContext(config, { headless: false });
+  const page = context.pages()[0] || (await context.newPage());
+  await page.goto(config.baseUrl + '/', { waitUntil: 'domcontentloaded' }).catch(() => {});
+
+  log.info('browser open — sign in to Seller Center (2FA included). Waiting…');
+  const deadline = Date.now() + config.manualLoginTimeoutMs;
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(3000);
+    if (page.isClosed()) break;
+    if (!(await isLoginPage(page).catch(() => true))) {
+      await page.waitForTimeout(3000);
+      if (!(await isLoginPage(page).catch(() => true))) {
+        await saveStorageState(context, config);
+        log.info(`session saved — profile: ${config.userDataDir}`);
+        await context.close();
+        return true;
+      }
+    }
+  }
+  await context.close();
+  throw new LoginError('Timed out waiting for the manual sign-in to finish.', `Raise --loginTimeout (currently ${config.manualLoginTimeoutMs}ms) and try again.`);
+}
+
+module.exports = { openContext, ensureLoggedIn, interactiveLogin, isLoginPage, looksChallenged, saveStorageState, LoginError };
