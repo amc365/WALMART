@@ -52,6 +52,8 @@ function buildConfig(argv = process.argv.slice(2)) {
     // Chromium binary. Playwright's own download is used unless overridden
     // (some CI images ship a pre-installed browser at a fixed path).
     browserPath: args.browserPath || env.MONITOR_BROWSER_PATH || null,
+    // An installed browser to drive instead: 'msedge' or 'chrome'.
+    browserChannel: args.channel || env.MONITOR_BROWSER_CHANNEL || null,
 
     // Login. A saved session is strongly preferred over scripted credentials
     // because Seller Center challenges new sessions with 2FA. The cookie jar

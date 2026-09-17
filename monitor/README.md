@@ -13,8 +13,16 @@ not what an API reports.
 
 ```bash
 npm install
-npx playwright install chromium     # once, unless a browser is already installed
+npx playwright install chromium     # optional — see below
 ```
+
+That download is ~150MB and slow or filtered connections often kill it. It is
+not required: if Playwright's own Chromium is missing, the monitor falls back to
+an installed **Microsoft Edge** (present on every Windows machine) and then
+**Google Chrome**, and logs which one it chose. Force one with
+`--channel=msedge`, `--channel=chrome`, or point at a binary with
+`--browserPath=...`. If none are available it stops immediately with
+`CANNOT START — no browser to drive` and lists what it tried.
 
 Non-technical setup lives in `../START-HERE.md` (double-click launchers for Mac
 and Windows). This file is the reference.
@@ -134,7 +142,9 @@ npm run monitor -- --sections=monitor/sections.local.json
 | `--only` | — | all | comma-separated section keys, e.g. `--only=orders,items` |
 | `--baseUrl` | `WALMART_SC_BASE_URL` | `https://seller.walmart.com` | Seller Center host |
 | `--logDir` | `MONITOR_LOG_DIR` | `monitor/logs` | where logs go |
-| `--browserPath` | `MONITOR_BROWSER_PATH` | Playwright's | Chromium binary to use |
+| `--browserPath` | `MONITOR_BROWSER_PATH` | Playwright's | exact browser binary to use |
+| `--channel` | `MONITOR_BROWSER_CHANNEL` | auto | installed browser to drive: `msedge` or `chrome` |
+| `--noAutoLogin` | — | off | never open a sign-in window; fail instead (for servers) |
 
 ## Self-test
 

@@ -22,12 +22,38 @@ class LoginError extends Error {
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
-async function openContext(config, { headless = config.headless } = {}) {
+class BrowserError extends Error {
+  constructor(message, hint) {
+    super(message);
+    this.name = 'BrowserError';
+    this.hint = hint;
+  }
+}
+
+// Which browser to drive, in order of preference. Downloading Playwright's own
+// Chromium is a ~150MB fetch that firewalls and slow links often kill, so an
+// already-installed Edge or Chrome is used when that copy is not there. Every
+// Windows machine has Edge; most Macs have Chrome.
+function launchStrategies(config) {
+  if (config.browserPath) {
+    return [{ label: `the browser at ${config.browserPath}`, options: { executablePath: config.browserPath } }];
+  }
+  if (config.browserChannel) {
+    return [{ label: config.browserChannel, options: { channel: config.browserChannel } }];
+  }
+  return [
+    { label: "Playwright's Chromium", options: {} },
+    { label: 'Microsoft Edge', options: { channel: 'msedge' } },
+    { label: 'Google Chrome', options: { channel: 'chrome' } }
+  ];
+}
+
+async function openContext(config, { headless = config.headless, log = null } = {}) {
   fs.mkdirSync(config.userDataDir, { recursive: true });
-  const context = await chromium.launchPersistentContext(config.userDataDir, {
+
+  const baseOptions = {
     headless,
     slowMo: config.slowMoMs || undefined,
-    executablePath: config.browserPath || undefined,
     viewport: { width: 1440, height: 900 },
     userAgent: USER_AGENT,
     args: [
@@ -40,10 +66,29 @@ async function openContext(config, { headless = config.headless } = {}) {
       '--no-first-run',
       '--no-default-browser-check'
     ]
-  });
-  context.setDefaultTimeout(config.navTimeoutMs);
-  context.setDefaultNavigationTimeout(config.navTimeoutMs);
-  return context;
+  };
+
+  const attempts = [];
+  for (const strategy of launchStrategies(config)) {
+    try {
+      const context = await chromium.launchPersistentContext(config.userDataDir, {
+        ...baseOptions,
+        ...strategy.options
+      });
+      if (log) log.info(`using ${strategy.label}`);
+      context.setDefaultTimeout(config.navTimeoutMs);
+      context.setDefaultNavigationTimeout(config.navTimeoutMs);
+      return context;
+    } catch (err) {
+      attempts.push(`${strategy.label}: ${err.message.split('\n')[0]}`);
+    }
+  }
+
+  throw new BrowserError(
+    `No usable browser was found. Tried — ${attempts.join(' | ')}`,
+    'Install Google Chrome from https://www.google.com/chrome and start this again. ' +
+      'Or, on a good connection, run: npx playwright install chromium'
+  );
 }
 
 async function saveStorageState(context, config) {
@@ -173,7 +218,7 @@ async function ensureLoggedIn(page, config, log) {
 
 // Headed one-off: opens the browser and waits for a human to finish signing in.
 async function interactiveLogin(config, log) {
-  const context = await openContext(config, { headless: false });
+  const context = await openContext(config, { headless: false, log });
   const page = context.pages()[0] || (await context.newPage());
   await page.goto(config.baseUrl + '/', { waitUntil: 'domcontentloaded' }).catch(() => {});
 
@@ -196,4 +241,4 @@ async function interactiveLogin(config, log) {
   throw new LoginError('Timed out waiting for the manual sign-in to finish.', `Raise --loginTimeout (currently ${config.manualLoginTimeoutMs}ms) and try again.`);
 }
 
-module.exports = { openContext, ensureLoggedIn, interactiveLogin, isLoginPage, looksChallenged, saveStorageState, restoreSavedCookies, canShowWindow, LoginError };
+module.exports = { openContext, ensureLoggedIn, interactiveLogin, isLoginPage, looksChallenged, saveStorageState, restoreSavedCookies, canShowWindow, LoginError, BrowserError };

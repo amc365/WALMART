@@ -12,7 +12,7 @@
 const { buildConfig } = require('./config');
 const { loadSections } = require('./sections');
 const { StatusLog } = require('./logger');
-const { openContext, ensureLoggedIn, interactiveLogin, saveStorageState, canShowWindow, LoginError } = require('./session');
+const { openContext, ensureLoggedIn, interactiveLogin, saveStorageState, canShowWindow, LoginError, BrowserError } = require('./session');
 const { checkSection } = require('./check');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -69,7 +69,7 @@ async function returnToDashboard(page, dashboard, config, log, cycle) {
 // and a window can be shown, it opens one and waits for the sign-in rather than
 // telling the person to go run a different command first.
 async function startSession(config, log) {
-  let context = await openContext(config);
+  let context = await openContext(config, { log });
   let page = context.pages()[0] || (await context.newPage());
 
   try {
@@ -86,7 +86,7 @@ async function startSession(config, log) {
     await context.close().catch(() => {});
     await interactiveLogin(config, log);
 
-    context = await openContext(config);
+    context = await openContext(config, { log });
     page = context.pages()[0] || (await context.newPage());
     try {
       await ensureLoggedIn(page, config, log);
@@ -175,6 +175,15 @@ async function main() {
     const outcome = await monitor(config, log);
     return outcome.stopped ? 1 : 0;
   } catch (err) {
+    if (err instanceof BrowserError) {
+      console.log(`\n${'='.repeat(72)}\nCANNOT START — no browser to drive\n${'='.repeat(72)}`);
+      console.log(`  Error   : ${err.message}`);
+      if (err.hint) console.log(`  Fix     : ${err.hint}`);
+      console.log(`${'='.repeat(72)}\n`);
+      log.error(`no usable browser: ${err.message}`, { event: 'stop', kind: 'browser', hint: err.hint });
+      log.finish('stopped', `browser: ${err.message}`);
+      return 1;
+    }
     if (err instanceof LoginError) {
       console.log(`\n${'='.repeat(72)}\nMONITORING STOPPED — login issue\n${'='.repeat(72)}`);
       console.log(`  Section : Login`);

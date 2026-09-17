@@ -18,7 +18,13 @@ if errorlevel 1 (
 
 echo Setting up ^(first time takes a few minutes^)...
 call npm install --silent || goto :failed
-call npx --yes playwright install chromium || goto :failed
+
+REM Try to fetch Playwright's own browser. This is a large download that slow or
+REM filtered connections often kill, so a failure here is not fatal -- Microsoft
+REM Edge is already on every Windows machine and is used instead.
+echo Downloading a browser ^(this one is optional, Edge is used if it fails^)...
+call npx --yes playwright install chromium
+if errorlevel 1 echo    Download did not finish - Microsoft Edge will be used instead. That is fine.
 
 echo.
 echo Starting. If a browser window opens, sign in to Seller Center -

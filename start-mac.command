@@ -17,7 +17,11 @@ fi
 
 echo "Setting up (first time takes a few minutes)..."
 npm install --silent || { echo "Setup failed."; read -r -p "Press Return to close."; exit 1; }
-npx --yes playwright install chromium || { echo "Browser download failed."; read -r -p "Press Return to close."; exit 1; }
+
+# A large download that slow or filtered connections often kill. Not fatal: an
+# installed Chrome is used instead when this does not finish.
+echo "Downloading a browser (optional — Chrome is used if this fails)..."
+npx --yes playwright install chromium || echo "   Download did not finish — Google Chrome will be used instead."
 
 echo
 echo "Starting. If a browser window opens, sign in to Seller Center —"

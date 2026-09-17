@@ -73,6 +73,12 @@ exactly what it saw.
 Node.js isn't installed. The window will say so and point you to
 https://nodejs.org — install the LTS version, then double-click again.
 
+**"It said `Failed to install browsers` / `Download failure`."**
+Harmless. That's the optional 150 MB browser download being cut off by your
+connection. It now carries on and uses Microsoft Edge, which is already on your
+PC. If it still can't start, it will say `CANNOT START — no browser to drive`,
+and installing Google Chrome fixes it.
+
 **"It stopped and said `login`."**
 Your Walmart session expired — normal after enough hours. Double-click the
 start file again and sign in once more.
