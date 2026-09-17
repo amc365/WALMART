@@ -42,7 +42,9 @@ echo Leave this black window open. Press Ctrl-C to stop.
 echo.
 
 REM --headed shows the browser doing the work. Delete it to hide the window.
-node monitor/run.js --hours=8 --headed
+REM --realCursor moves your actual Windows mouse pointer. Delete that word if
+REM you would rather keep your mouse free while it runs.
+node monitor/run.js --hours=8 --headed --realCursor
 
 echo.
 echo ---------------------------------------------------------------

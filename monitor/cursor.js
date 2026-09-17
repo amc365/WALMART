@@ -5,6 +5,8 @@
 // follows the synthetic mouse and flashes on each click, so a person watching
 // can see what the monitor is doing.
 
+const osCursor = require('./os-cursor');
+
 const CURSOR_SCRIPT = `(() => {
   if (window.__monitorCursor) return;
   window.__monitorCursor = true;
@@ -48,13 +50,32 @@ const CURSOR_SCRIPT = `(() => {
 })();`;
 
 // Glides to the element and clicks it, slowly enough to follow by eye.
-async function moveAndClick(page, locator, { steps = 30, pauseMs = 400 } = {}) {
+//
+// With `realCursor`, the operating system's own pointer is walked to the same
+// spot first, so the arrow on screen visibly travels to the link. Playwright
+// still performs the click, so a failure to move the arrow — or a person
+// nudging the mouse mid-run — cannot send a click to the wrong place.
+async function moveAndClick(page, locator, { steps = 30, pauseMs = 400, realCursor = false, log = null } = {}) {
   await locator.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
   const box = await locator.boundingBox();
   if (!box) throw new Error('the link is not visible on the page');
 
   const x = box.x + box.width / 2;
   const y = box.y + box.height / 2;
+
+  if (realCursor && osCursor.isSupported()) {
+    try {
+      const screenPoint = await osCursor.pageToScreen(page, x, y);
+      const moved = await osCursor.glideTo(screenPoint.x, screenPoint.y);
+      if (!moved && log && !log.__cursorWarned) {
+        log.__cursorWarned = true;
+        log.warn('could not move the on-screen pointer; the in-page dot still shows each click');
+      }
+    } catch {
+      // Never let pointer decoration stop the actual check.
+    }
+  }
+
   await page.mouse.move(x, y, { steps });
   await page.waitForTimeout(pauseMs);
   await page.mouse.click(x, y);

@@ -66,7 +66,7 @@ async function clickNavTo(page, section, config, log) {
     const target = candidate.first();
     if (!(await target.isVisible().catch(() => false))) continue;
     try {
-      await moveAndClick(page, target);
+      await moveAndClick(page, target, { realCursor: config.realCursor, log });
       await page.waitForLoadState('domcontentloaded', { timeout: config.navTimeoutMs }).catch(() => {});
       await page.waitForLoadState('networkidle', { timeout: config.navTimeoutMs }).catch(() => {});
       await page.waitForTimeout(config.settleMs);

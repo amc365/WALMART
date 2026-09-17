@@ -58,6 +58,8 @@ function buildConfig(argv = process.argv.slice(2)) {
     // Draw a pointer in the page and click the menu rather than jumping
     // straight to URLs, so the run can be followed by eye.
     showCursor: bool(args.showCursor, true),
+    // Move the operating system's real pointer too (Windows only).
+    realCursor: bool(args.realCursor, false),
     clickNav: bool(args.clickNav, true),
 
     // Login. A saved session is strongly preferred over scripted credentials
