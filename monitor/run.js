@@ -12,7 +12,7 @@
 const { buildConfig } = require('./config');
 const { loadSections } = require('./sections');
 const { StatusLog } = require('./logger');
-const { openContext, ensureLoggedIn, interactiveLogin, LoginError } = require('./session');
+const { openContext, ensureLoggedIn, interactiveLogin, saveStorageState, canShowWindow, LoginError } = require('./session');
 const { checkSection } = require('./check');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -65,6 +65,39 @@ async function returnToDashboard(page, dashboard, config, log, cycle) {
   return null;
 }
 
+// Opens a signed-in browser. If there is no saved session and no credentials,
+// and a window can be shown, it opens one and waits for the sign-in rather than
+// telling the person to go run a different command first.
+async function startSession(config, log) {
+  let context = await openContext(config);
+  let page = context.pages()[0] || (await context.newPage());
+
+  try {
+    await ensureLoggedIn(page, config, log);
+    return { context, page };
+  } catch (err) {
+    const canPrompt = err instanceof LoginError && err.needsInteractiveLogin && !config.noAutoLogin && canShowWindow();
+    if (!canPrompt) {
+      await context.close().catch(() => {});
+      throw err;
+    }
+
+    log.info('no saved session — opening a browser window so you can sign in');
+    await context.close().catch(() => {});
+    await interactiveLogin(config, log);
+
+    context = await openContext(config);
+    page = context.pages()[0] || (await context.newPage());
+    try {
+      await ensureLoggedIn(page, config, log);
+    } catch (retryErr) {
+      await context.close().catch(() => {});
+      throw retryErr;
+    }
+    return { context, page };
+  }
+}
+
 async function monitor(config, log) {
   const sections = loadSections(config);
   const dashboard = sections.find((s) => s.key === 'dashboard') || sections[0];
@@ -73,13 +106,11 @@ async function monitor(config, log) {
   log.info(`monitoring ${sections.map((s) => s.name).join(', ')}`, { event: 'start', sections: sections.map((s) => s.name) });
   log.info(`run ends at ${new Date(endsAt).toISOString()} (${config.hours}h), cycle pause ${config.cycleDelayMs}ms, retries=${config.retries}, stop-on-error=${!config.continueOnError}`);
 
-  const context = await openContext(config);
-  const page = context.pages()[0] || (await context.newPage());
+  let { context, page } = await startSession(config, log);
   let stopping = false;
   process.on('SIGINT', () => { stopping = true; log.warn('SIGINT received — finishing the current check and stopping'); });
 
   try {
-    await ensureLoggedIn(page, config, log);
 
     let cycle = 0;
     while (Date.now() < endsAt && !stopping) {
@@ -116,6 +147,7 @@ async function monitor(config, log) {
       }
 
       log.cycleEnd(cycle, Date.now() - cycleStarted);
+      await saveStorageState(context, config).catch(() => {});
 
       const pause = Math.min(config.cycleDelayMs, Math.max(0, endsAt - Date.now()));
       if (pause > 0 && !stopping) await sleep(pause);

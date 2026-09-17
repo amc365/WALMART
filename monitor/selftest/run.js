@@ -21,6 +21,14 @@ const CASES = [
   { name: 'blank page is caught', fault: { FAULT_SECTION: 'reports', FAULT_MODE: 'empty' }, expectExit: 1, expectKind: 'empty', expectSection: 'Reports' },
   { name: 'hung page is caught', fault: { FAULT_SECTION: 'items', FAULT_MODE: 'timeout' }, expectExit: 1, expectKind: 'timeout', expectSection: 'Items' },
   {
+    // The sign-in cookie has no expiry, so the browser drops it on exit. This
+    // asserts the saved cookie jar carries the session into the next run —
+    // otherwise "sign in once" silently becomes "sign in every time".
+    name: 'session survives a restart without credentials',
+    fault: {}, args: ['--hours=0.004'], secondRunWithoutCredentials: true,
+    expectExit: 0, expectFailures: 0
+  },
+  {
     name: 'transient fault recovers on retry',
     fault: { FAULT_SECTION: 'reports', FAULT_MODE: 'error', FAULT_AFTER: '1', FAULT_UNTIL: '1' },
     args: ['--hours=0.006', '--retries=2', '--retryDelay=1000'],
@@ -36,7 +44,7 @@ function startMock(fault) {
   return child;
 }
 
-function runMonitor(logDir, profileDir, extraArgs) {
+function runMonitor(logDir, profileDir, extraArgs, withCredentials = true) {
   return new Promise((resolve) => {
     const args = [
       path.join(__dirname, '..', 'run.js'),
@@ -45,8 +53,11 @@ function runMonitor(logDir, profileDir, extraArgs) {
       `--logDir=${logDir}`, `--userDataDir=${profileDir}`,
       ...(extraArgs || [])
     ];
+    const credentials = withCredentials
+      ? { WALMART_SC_EMAIL: 'selftest@example.com', WALMART_SC_PASSWORD: 'selftest' }
+      : { WALMART_SC_EMAIL: '', WALMART_SC_PASSWORD: '' };
     const child = spawn(process.execPath, args, {
-      env: { ...process.env, WALMART_SC_EMAIL: 'selftest@example.com', WALMART_SC_PASSWORD: 'selftest' },
+      env: { ...process.env, ...credentials },
       stdio: 'ignore'
     });
     child.on('exit', (code) => resolve(code));
@@ -63,7 +74,11 @@ async function main() {
     const logDir = path.join(tmp, testCase.name.replace(/\W+/g, '-'), 'logs');
     const profileDir = path.join(tmp, testCase.name.replace(/\W+/g, '-'), 'profile');
 
-    const exitCode = await runMonitor(logDir, profileDir, testCase.args);
+    let exitCode = await runMonitor(logDir, profileDir, testCase.args);
+    if (testCase.secondRunWithoutCredentials) {
+      // Same browser profile, no credentials: it must get in on the saved session.
+      exitCode = await runMonitor(logDir, profileDir, testCase.args, false);
+    }
     mock.kill();
     await sleep(500);
 

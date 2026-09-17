@@ -51,6 +51,32 @@ async function saveStorageState(context, config) {
   await context.storageState({ path: config.storageStatePath });
 }
 
+// Chromium drops cookies that carry no expiry date when the browser exits, and
+// sign-in cookies are often exactly that. The browser profile alone therefore
+// does not guarantee a session survives a restart, so the cookie jar is also
+// saved to a file and put back when the profile turns out to be signed out.
+async function restoreSavedCookies(context, config, log) {
+  if (!fs.existsSync(config.storageStatePath)) return false;
+  try {
+    const saved = JSON.parse(fs.readFileSync(config.storageStatePath, 'utf8'));
+    if (!saved.cookies || !saved.cookies.length) return false;
+    await context.addCookies(saved.cookies);
+    log.info(`restored ${saved.cookies.length} saved cookies from the last session`);
+    return true;
+  } catch (err) {
+    log.warn(`could not restore the saved session: ${err.message}`);
+    return false;
+  }
+}
+
+// Whether a browser window can actually be shown to a person. On a headless
+// server there is no display, so the manual sign-in prompt is pointless and the
+// run should fail with an explanation instead of hanging.
+function canShowWindow() {
+  if (process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) return false;
+  return true;
+}
+
 async function isLoginPage(page) {
   if (LOGIN_URL_PATTERN.test(page.url())) return true;
   return (await page.locator('input[type="password"]').count()) > 0;
@@ -64,14 +90,6 @@ async function looksChallenged(page) {
 // Fills the Seller Center sign-in form. Selector lists are ordered most to
 // least specific because Walmart has shipped several versions of this page.
 async function scriptedLogin(page, config, log) {
-  if (!config.email || !config.password) {
-    throw new LoginError(
-      'Not signed in and no credentials available.',
-      'Run `npm run monitor:login` once to sign in by hand (2FA included); the session is reused afterwards. ' +
-        'Alternatively set WALMART_SC_EMAIL and WALMART_SC_PASSWORD.'
-    );
-  }
-
   log.info('signing in with WALMART_SC_EMAIL');
   const emailField = page.locator('#loginUsername, input[name="loginUsername"], input[type="email"], input[name="email"]').first();
   await emailField.waitFor({ state: 'visible', timeout: config.navTimeoutMs });
@@ -122,7 +140,24 @@ async function ensureLoggedIn(page, config, log) {
   }
   await page.waitForLoadState('networkidle', { timeout: config.navTimeoutMs }).catch(() => {});
 
+  // Signed out, but a saved cookie jar may still be good — try it before
+  // asking anyone to sign in again.
+  if ((await isLoginPage(page)) && (await restoreSavedCookies(page.context(), config, log))) {
+    await page.goto(config.baseUrl + '/', { waitUntil: 'domcontentloaded', timeout: config.navTimeoutMs });
+    await page.waitForLoadState('networkidle', { timeout: config.navTimeoutMs }).catch(() => {});
+  }
+
   if (await isLoginPage(page)) {
+    if (!config.email || !config.password) {
+      // Nothing to type. The caller decides whether to open a window and ask.
+      const err = new LoginError(
+        'Not signed in, and no saved session was found.',
+        'Sign in by hand once with `npm run monitor:login` — the session is reused after that. ' +
+          'Or set WALMART_SC_EMAIL and WALMART_SC_PASSWORD in .env.'
+      );
+      err.needsInteractiveLogin = true;
+      throw err;
+    }
     await scriptedLogin(page, config, log);
     await page.goto(config.baseUrl + '/', { waitUntil: 'domcontentloaded', timeout: config.navTimeoutMs });
     await page.waitForLoadState('networkidle', { timeout: config.navTimeoutMs }).catch(() => {});
@@ -131,6 +166,7 @@ async function ensureLoggedIn(page, config, log) {
     }
   }
 
+  await saveStorageState(page.context(), config).catch(() => {});
   log.info(`signed in — dashboard reachable at ${page.url()}`);
   return true;
 }
@@ -160,4 +196,4 @@ async function interactiveLogin(config, log) {
   throw new LoginError('Timed out waiting for the manual sign-in to finish.', `Raise --loginTimeout (currently ${config.manualLoginTimeoutMs}ms) and try again.`);
 }
 
-module.exports = { openContext, ensureLoggedIn, interactiveLogin, isLoginPage, looksChallenged, saveStorageState, LoginError };
+module.exports = { openContext, ensureLoggedIn, interactiveLogin, isLoginPage, looksChallenged, saveStorageState, restoreSavedCookies, canShowWindow, LoginError };

@@ -28,6 +28,7 @@ function buildConfig(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   const env = process.env;
   const root = path.join(__dirname);
+  const userDataDir = args.userDataDir || env.MONITOR_USER_DATA_DIR || path.join(root, '.session', 'profile');
 
   return {
     baseUrl: (args.baseUrl || env.WALMART_SC_BASE_URL || 'https://seller.walmart.com').replace(/\/+$/, ''),
@@ -52,10 +53,12 @@ function buildConfig(argv = process.argv.slice(2)) {
     // (some CI images ship a pre-installed browser at a fixed path).
     browserPath: args.browserPath || env.MONITOR_BROWSER_PATH || null,
 
-    // Login. A saved storage state is strongly preferred over scripted
-    // credentials because Seller Center challenges new sessions with 2FA.
-    storageStatePath: args.storageState || env.MONITOR_STORAGE_STATE || path.join(root, '.session', 'storage-state.json'),
-    userDataDir: args.userDataDir || env.MONITOR_USER_DATA_DIR || path.join(root, '.session', 'profile'),
+    // Login. A saved session is strongly preferred over scripted credentials
+    // because Seller Center challenges new sessions with 2FA. The cookie jar
+    // lives beside the browser profile it came from, so two different profiles
+    // never borrow each other's sign-in.
+    userDataDir,
+    storageStatePath: args.storageState || env.MONITOR_STORAGE_STATE || path.join(path.dirname(userDataDir), 'storage-state.json'),
     email: env.WALMART_SC_EMAIL || null,
     password: env.WALMART_SC_PASSWORD || null,
     manualLoginTimeoutMs: num(args.loginTimeout, num(env.MONITOR_LOGIN_TIMEOUT_MS, 300000)),
@@ -63,6 +66,9 @@ function buildConfig(argv = process.argv.slice(2)) {
     // Re-check a failing section before declaring it broken. Default 0 keeps
     // the strict "stop at the first problem" behaviour; 1 or 2 is useful on a
     // long run where a single blip should not end the watch.
+    // Set when the run must never pause for a human (a server, a cron job).
+    noAutoLogin: bool(args.noAutoLogin, false),
+
     retries: num(args.retries, num(env.MONITOR_RETRIES, 0)),
     retryDelayMs: num(args.retryDelay, num(env.MONITOR_RETRY_DELAY_MS, 5000)),
 

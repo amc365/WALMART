@@ -49,7 +49,8 @@ app.post('/login', (req, res) => {
     return res.send(page('Sign in', '<div role="alert">Enter your email and password.</div><form method="post" action="/login"><input type="password" name="loginPassword"></form>'));
   }
   signedOut = false;
-  res.cookie ? res.cookie('sc_session', '1') : res.setHeader('Set-Cookie', 'sc_session=1; Path=/');
+  // No Max-Age: a session cookie, which Chromium drops when it exits. This is
+  // deliberate — it is what a real sign-in cookie often looks like.
   res.setHeader('Set-Cookie', 'sc_session=1; Path=/');
   res.redirect('/');
 });

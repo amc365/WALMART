@@ -16,6 +16,9 @@ npm install
 npx playwright install chromium     # once, unless a browser is already installed
 ```
 
+Non-technical setup lives in `../START-HERE.md` (double-click launchers for Mac
+and Windows). This file is the reference.
+
 ## Sign in once
 
 Seller Center challenges fresh automated logins with 2FA, so the reliable path
@@ -28,6 +31,15 @@ npm run monitor:login
 
 A browser window opens. Sign in, clear any verification step, and the script
 saves the session and exits.
+
+Or just run `npm run monitor` — with no saved session and no credentials it
+opens the sign-in window for you, then carries on monitoring once you are in.
+(`--noAutoLogin` disables that, for unattended servers that must never block.)
+
+The session is kept two ways: the browser profile itself, and a saved cookie jar
+beside it (`storage-state.json`). The jar matters — sign-in cookies frequently
+carry no expiry date, so Chromium discards them on exit and the profile alone
+would make you sign in on every run.
 
 Scripted login also works if your account allows it — set `WALMART_SC_EMAIL`
 and `WALMART_SC_PASSWORD` in `.env`. If Walmart answers with a verification
