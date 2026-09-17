@@ -15,13 +15,20 @@ if ! command -v node > /dev/null 2>&1; then
   exit 1
 fi
 
+LOG="$(pwd)/setup-log.txt"
 echo "Setting up (first time takes a few minutes)..."
-npm install --silent || { echo "Setup failed."; read -r -p "Press Return to close."; exit 1; }
+echo "--- npm install ---" > "$LOG"
+npm install >> "$LOG" 2>&1 || {
+  echo "SETUP FAILED. The reason is at the bottom of $LOG"
+  echo "Open that file, copy the last few lines, and send them over."
+  read -r -p "Press Return to close."
+  exit 1
+}
 
 # A large download that slow or filtered connections often kill. Not fatal: an
 # installed Chrome is used instead when this does not finish.
 echo "Downloading a browser (optional — Chrome is used if this fails)..."
-npx --yes playwright install chromium || echo "   Download did not finish — Google Chrome will be used instead."
+npx --yes playwright install chromium >> "$LOG" 2>&1 || echo "   Download did not finish — your Chrome will be used instead. That is fine."
 
 echo
 echo "Starting. If a browser window opens, sign in to Seller Center —"
