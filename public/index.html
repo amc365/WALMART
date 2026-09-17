@@ -18,6 +18,12 @@
   .stage { background:#1a73e8; color:#fff; }
   .muted { color:#888; font-size:12px; }
   #summary { font-size:13px; color:#444; }
+  .promo-form { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; }
+  .promo-form label { display:flex; flex-direction:column; font-size:12px; color:#555; gap:4px; }
+  .promo-form input { padding:6px 8px; border:1px solid #ccc; border-radius:4px; font-size:13px; }
+  .errs { color:#8c1d18; font-size:13px; }
+  .errs ul { margin:4px 0 0 18px; padding:0; }
+  .warns { color:#7a4f01; font-size:13px; margin-top:6px; }
   .banner { border-radius:8px; padding:12px 16px; margin-top:12px; font-size:13px; line-height:1.5; display:none; }
   .banner.error { background:#fdecea; border:1px solid #f5c6c2; color:#8c1d18; }
   .banner.warn  { background:#fff6e5; border:1px solid #f5dfae; color:#7a4f01; }
@@ -54,6 +60,32 @@
   <div class="card">
     <table id="fixPendingTable">
       <thead><tr><th>SKU</th><th>Fix</th><th>Status</th><th>Action</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <h2>Promotions — Set a Promotional Price</h2>
+  <div id="promoDryRun" class="banner warn"></div>
+  <div class="card">
+    <div class="muted" style="margin-bottom:10px">
+      Sets a reduced price on a SKU via Seller Center. Walmart requires the start to be
+      at least 4 hours away, max 180 days, and no overlapping dates on the same SKU.
+      <strong>Nothing is sent until you click Approve.</strong>
+    </div>
+    <div class="promo-form">
+      <label>SKU<input id="pSku" type="text" placeholder="ABC-123"></label>
+      <label>Promo price<input id="pPrice" type="number" step="0.01" min="0" placeholder="8.99"></label>
+      <label>Was price<input id="pCompare" type="number" step="0.01" min="0" placeholder="12.99"></label>
+      <label>Starts<input id="pStart" type="datetime-local"></label>
+      <label>Ends<input id="pEnd" type="datetime-local"></label>
+      <button class="stage" id="pStage">Stage promotion</button>
+    </div>
+    <div id="promoFormMsg" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card">
+    <table id="promoTable">
+      <thead><tr><th>SKU</th><th>Promo</th><th>Was</th><th>Runs</th><th>Status</th><th>Action</th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
@@ -250,7 +282,94 @@ async function reject(id) {
   loadPending();
 }
 
+// ---- promotions ----
+function localToIso(v) {
+  if (!v) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+async function stagePromo() {
+  const msg = document.getElementById('promoFormMsg');
+  msg.innerHTML = '';
+  const payload = {
+    sku: document.getElementById('pSku').value.trim(),
+    promoPrice: document.getElementById('pPrice').value,
+    comparisonPrice: document.getElementById('pCompare').value,
+    startsAt: localToIso(document.getElementById('pStart').value),
+    endsAt: localToIso(document.getElementById('pEnd').value)
+  };
+  const r = await fetch('/api/promotions/pending', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  });
+  const data = await r.json();
+
+  if (!r.ok) {
+    // Show every reason Walmart would reject this, before anything is sent.
+    msg.innerHTML = '<div class="errs"><strong>Not staged:</strong><ul>' +
+      (data.errors || [data.error]).map(e => '<li>' + esc(e) + '</li>').join('') + '</ul></div>';
+    return;
+  }
+  msg.innerHTML = '<div class="ok">Staged — review it below, then Approve to send it to Walmart.</div>' +
+    ((data.warnings || []).length
+      ? '<div class="warns">' + data.warnings.map(w => esc(w)).join('<br>') + '</div>'
+      : '');
+  ['pSku','pPrice','pCompare','pStart','pEnd'].forEach(i => document.getElementById(i).value = '');
+  loadPromos();
+}
+
+async function loadPromos() {
+  const res = await fetch('/api/promotions/pending');
+  const data = await res.json();
+  const tbody = document.querySelector('#promoTable tbody');
+  const dr = document.getElementById('promoDryRun');
+  tbody.innerHTML = '';
+
+  if (data.dryRun) {
+    showBanner(dr, 'warn', '<strong>Dry-run mode is on</strong>Promotions are validated and recorded but never sent to Walmart. Unset <code>PROMOTIONS_DRY_RUN</code> to go live.');
+  } else {
+    dr.style.display = 'none';
+  }
+
+  data.pending.forEach(p => {
+    const tr = document.createElement('tr');
+    const runs = new Date(p.startsAt).toLocaleString() + ' → ' + new Date(p.endsAt).toLocaleString();
+    const done = p.status !== 'awaiting_approval';
+    tr.innerHTML =
+      '<td>' + esc(p.sku) + '</td>' +
+      '<td>$' + esc(p.promoPrice) + '</td>' +
+      '<td>$' + esc(p.comparisonPrice) + '</td>' +
+      '<td>' + esc(runs) + '</td>' +
+      '<td class="' + (p.status === 'failed' ? 'issue' : '') + '">' + esc(p.status) +
+        (p.walmartStatus ? ' (HTTP ' + esc(p.walmartStatus) + ')' : '') + '</td>' +
+      '<td>' + (done ? '<span class="muted">—</span>'
+        : '<button class="approve">Approve</button><button class="reject">Reject</button>') + '</td>';
+    if (!done) {
+      tr.querySelector('.approve').addEventListener('click', () => approvePromo(p.id));
+      tr.querySelector('.reject').addEventListener('click', () => rejectPromo(p.id));
+    }
+    tbody.appendChild(tr);
+  });
+}
+
+async function approvePromo(id) {
+  if (!confirm('Send this promotion to Walmart? This changes the live price on your listing.')) return;
+  const r = await fetch('/api/promotions/pending/' + encodeURIComponent(id) + '/approve', { method: 'POST' });
+  const data = await r.json();
+  if (!r.ok) {
+    alert('Not applied: ' + (data.error || r.status) + (data.errors ? '\n\n' + data.errors.join('\n') : ''));
+  }
+  loadPromos();
+}
+async function rejectPromo(id) {
+  await fetch('/api/promotions/pending/' + encodeURIComponent(id) + '/reject', { method: 'POST' });
+  loadPromos();
+}
+
+document.getElementById('pStage').addEventListener('click', stagePromo);
+
 loadListings();
+loadPromos();
 loadFixPending();
 loadAdsStatus();
 loadPending();
