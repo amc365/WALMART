@@ -55,7 +55,7 @@ const CURSOR_SCRIPT = `(() => {
 // spot first, so the arrow on screen visibly travels to the link. Playwright
 // still performs the click, so a failure to move the arrow — or a person
 // nudging the mouse mid-run — cannot send a click to the wrong place.
-async function moveAndClick(page, locator, { steps = 30, pauseMs = 400, realCursor = false, log = null } = {}) {
+async function moveAndClick(page, locator, { steps = 30, pauseMs = 400, realCursor = false, glideMs = 1200, log = null } = {}) {
   await locator.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
   const box = await locator.boundingBox();
   if (!box) throw new Error('the link is not visible on the page');
@@ -66,10 +66,18 @@ async function moveAndClick(page, locator, { steps = 30, pauseMs = 400, realCurs
   if (realCursor && osCursor.isSupported()) {
     try {
       const screenPoint = await osCursor.pageToScreen(page, x, y);
-      const moved = await osCursor.glideTo(screenPoint.x, screenPoint.y);
-      if (!moved && log && !log.__cursorWarned) {
+      const landed = await osCursor.glideAndSettle(screenPoint.x, screenPoint.y, {
+        durationMs: glideMs,
+        onRetry: (attempt, at) => {
+          if (log) {
+            log.info(`pointer drifted to ${Math.round(at.x)},${Math.round(at.y)} — taking it back (try ${attempt})`,
+              { event: 'cursor-retry' });
+          }
+        }
+      });
+      if (!landed && log && !log.__cursorWarned) {
         log.__cursorWarned = true;
-        log.warn('could not move the on-screen pointer; the in-page dot still shows each click');
+        log.warn('could not place the on-screen pointer; the in-page dot still shows each click');
       }
     } catch {
       // Never let pointer decoration stop the actual check.

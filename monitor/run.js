@@ -14,6 +14,7 @@ const { loadSections } = require('./sections');
 const { StatusLog } = require('./logger');
 const { openContext, ensureLoggedIn, interactiveLogin, saveStorageState, canShowWindow, LoginError, BrowserError } = require('./session');
 const { checkSection } = require('./check');
+const { randomBetween } = require('./util');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -120,6 +121,8 @@ async function monitor(config, log) {
 
       for (const section of sections) {
         if (stopping || Date.now() >= endsAt) break;
+        const hopStarted = Date.now();
+        const hopTarget = randomBetween(config.hopMinMs, config.hopMaxMs);
 
         const result = await checkWithRetries(page, section, config, log, cycle);
         if (result.resolvedPath && !section.resolvedPath) section.resolvedPath = result.resolvedPath;
@@ -143,7 +146,10 @@ async function monitor(config, log) {
           }
         }
 
-        await sleep(config.sectionDelayMs);
+        // Pace the hop to its own target so each section takes a different
+        // length of time rather than firing back to back on a fixed beat.
+        const remaining = hopTarget - (Date.now() - hopStarted);
+        if (remaining > 0) await sleep(remaining);
       }
 
       log.cycleEnd(cycle, Date.now() - cycleStarted);

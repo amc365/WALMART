@@ -11,4 +11,11 @@ function withTimeout(promise, ms, fallback) {
     .finally(() => clearTimeout(timer));
 }
 
-module.exports = { withTimeout };
+// A fresh value in [min, max] each call, so timings vary instead of ticking
+// like a metronome.
+function randomBetween(min, max) {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return min || 0;
+  return Math.round(min + Math.random() * (max - min));
+}
+
+module.exports = { withTimeout, randomBetween };

@@ -38,6 +38,14 @@ function buildConfig(argv = process.argv.slice(2)) {
     cycleDelayMs: num(args.cycleDelay, num(env.MONITOR_CYCLE_DELAY_MS, 60000)),
     sectionDelayMs: num(args.sectionDelay, num(env.MONITOR_SECTION_DELAY_MS, 3000)),
 
+    // How long one section takes end to end, picked fresh each time inside this
+    // range so the rhythm is not identical on every hop.
+    hopMinMs: num(args.hopMin, num(env.MONITOR_HOP_MIN_MS, 5000)),
+    hopMaxMs: num(args.hopMax, num(env.MONITOR_HOP_MAX_MS, 10000)),
+    // How long the pointer itself takes to travel to a link.
+    glideMinMs: num(args.glideMin, num(env.MONITOR_GLIDE_MIN_MS, 700)),
+    glideMaxMs: num(args.glideMax, num(env.MONITOR_GLIDE_MAX_MS, 1600)),
+
     // Per-section patience.
     navTimeoutMs: num(args.navTimeout, num(env.MONITOR_NAV_TIMEOUT_MS, 45000)),
     settleMs: num(args.settle, num(env.MONITOR_SETTLE_MS, 2500)),

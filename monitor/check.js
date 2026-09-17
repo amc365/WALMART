@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const { ERROR_PATTERNS, LOGIN_URL_PATTERN } = require('./sections');
-const { withTimeout } = require('./util');
+const { withTimeout, randomBetween } = require('./util');
 const { isLoginPage, looksChallenged } = require('./session');
 const { moveAndClick } = require('./cursor');
 
@@ -66,7 +66,11 @@ async function clickNavTo(page, section, config, log) {
     const target = candidate.first();
     if (!(await target.isVisible().catch(() => false))) continue;
     try {
-      await moveAndClick(page, target, { realCursor: config.realCursor, log });
+      await moveAndClick(page, target, {
+        realCursor: config.realCursor,
+        glideMs: randomBetween(config.glideMinMs, config.glideMaxMs),
+        log
+      });
       await page.waitForLoadState('domcontentloaded', { timeout: config.navTimeoutMs }).catch(() => {});
       await page.waitForLoadState('networkidle', { timeout: config.navTimeoutMs }).catch(() => {});
       await page.waitForTimeout(config.settleMs);
@@ -106,7 +110,7 @@ async function checkSection(page, section, config, log, cycle) {
     // Preferred: click the section's own menu link. This uses whatever URL the
     // account actually has instead of one guessed here, and it is visible.
     if (await clickNavTo(page, section, config, log)) {
-      const outcome = await judge(page, section, config, page.url(), null);
+      const outcome = await judgeWithDeadline(page, section, config, page.url(), null);
       outcome.via = 'menu click';
       outcome.section = section.name;
       outcome.cycle = cycle;
@@ -158,7 +162,7 @@ async function checkSection(page, section, config, log, cycle) {
       await page.waitForTimeout(config.settleMs);
 
       const finalUrl = page.url();
-      const result = await judge(page, section, config, finalUrl, status);
+      const result = await judgeWithDeadline(page, section, config, finalUrl, status);
       result.resolvedPath = candidate;
       last = result;
       if (result.ok || result.kind !== 'not-found') break; // only "not found" is worth another path
@@ -184,9 +188,24 @@ async function checkSection(page, section, config, log, cycle) {
   }
 }
 
+// Judging asks the page questions, and a page wedged mid-navigation can leave
+// those questions unanswered indefinitely — Playwright's own timeouts do not
+// always apply. A page that cannot answer in time is a page that is not
+// working, so the wait is capped and reported as such rather than hanging.
+async function judgeWithDeadline(page, section, config, finalUrl, status) {
+  const budgetMs = config.navTimeoutMs + 15000;
+  return withTimeout(judge(page, section, config, finalUrl, status), budgetMs, {
+    ok: false,
+    kind: 'timeout',
+    message: `the page never became readable within ${Math.round(budgetMs / 1000)}s at ${finalUrl} — it is stuck loading`,
+    url: finalUrl,
+    status
+  });
+}
+
 // Decides whether a loaded page counts as working.
 async function judge(page, section, config, finalUrl, status) {
-  if (LOGIN_URL_PATTERN.test(finalUrl) || (await isLoginPage(page))) {
+  if (LOGIN_URL_PATTERN.test(finalUrl) || (await withTimeout(isLoginPage(page), 10000, false))) {
     return { ok: false, kind: 'login', message: `redirected to a sign-in page (${finalUrl}) — the session expired or was rejected`, url: finalUrl, status };
   }
   if (await looksChallenged(page)) {
