@@ -37,6 +37,18 @@ normally do, including any code Walmart texts you.
 Once you're in, the window closes by itself and the watching begins. **You only
 do this once** — it remembers you next time.
 
+## You will see it working
+
+A browser window opens and moves through your Seller Center pages on its own.
+That is the program doing its job — let it be. Don't type in it or close it.
+
+**It does not control your mouse or keyboard.** It drives its own separate
+browser with its own invisible pointer. Your mouse, and your own Chrome windows,
+carry on as normal — keep working while it runs.
+
+To hide that window instead, open the start file in Notepad and delete the word
+`--headed` from the last command.
+
 ## Step 4 — That's it
 
 The black window fills with lines like this, one per page it checks:

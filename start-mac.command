@@ -36,7 +36,8 @@ echo "that happens once, then it remembers you."
 echo "Leave this window open. Press Control-C to stop."
 echo
 
-node monitor/run.js --hours=8
+# --headed shows the browser doing the work. Delete it to hide the window.
+node monitor/run.js --hours=8 --headed
 
 echo
 read -r -p "Finished. Press Return to close."

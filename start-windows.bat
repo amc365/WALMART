@@ -33,12 +33,16 @@ call npx --yes playwright install chromium >> "%LOG%" 2>&1
 if errorlevel 1 echo    Download did not finish - your Chrome will be used instead. That is fine.
 
 echo.
-echo Starting. If a browser window opens, sign in to Seller Center -
-echo that happens once, then it remembers you.
-echo Leave this window open. Press Ctrl-C to stop.
+echo Starting. A browser window will open and click through your
+echo Seller Center pages by itself - that is meant to happen. Do not
+echo type in it or close it. Your own mouse and browser are unaffected.
+echo.
+echo Sign in when it shows the Walmart login. That happens once.
+echo Leave this black window open. Press Ctrl-C to stop.
 echo.
 
-node monitor/run.js --hours=8
+REM --headed shows the browser doing the work. Delete it to hide the window.
+node monitor/run.js --hours=8 --headed
 
 echo.
 echo ---------------------------------------------------------------
