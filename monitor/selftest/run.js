@@ -19,7 +19,7 @@ const CASES = [
   { name: 'lost session is caught', fault: { FAULT_SECTION: 'payments', FAULT_MODE: 'logout' }, expectExit: 1, expectKind: 'login', expectSection: 'Payments' },
   { name: 'missing page is caught', fault: { FAULT_SECTION: 'payments', FAULT_MODE: '404' }, expectExit: 1, expectKind: 'not-found', expectSection: 'Payments' },
   { name: 'blank page is caught', fault: { FAULT_SECTION: 'reports', FAULT_MODE: 'empty' }, expectExit: 1, expectKind: 'empty', expectSection: 'Reports' },
-  { name: 'hung page is caught', fault: { FAULT_SECTION: 'items', FAULT_MODE: 'timeout' }, expectExit: 1, expectKind: 'timeout', expectSection: 'Items' },
+  { name: 'hung page is caught', fault: { FAULT_SECTION: 'catalog', FAULT_MODE: 'timeout' }, expectExit: 1, expectKind: 'timeout', expectSection: 'Catalog' },
   {
     // The sign-in cookie has no expiry, so the browser drops it on exit. This
     // asserts the saved cookie jar carries the session into the next run —

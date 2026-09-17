@@ -10,6 +10,7 @@ const path = require('path');
 const { chromium } = require('playwright');
 const { LOGIN_URL_PATTERN } = require('./sections');
 const { withTimeout } = require('./util');
+const { CURSOR_SCRIPT } = require('./cursor');
 
 class LoginError extends Error {
   constructor(message, hint) {
@@ -76,6 +77,7 @@ async function openContext(config, { headless = config.headless, log = null } = 
         ...strategy.options
       });
       if (log) log.info(`using ${strategy.label}`);
+      if (config.showCursor) await context.addInitScript(CURSOR_SCRIPT);
       context.setDefaultTimeout(config.navTimeoutMs);
       context.setDefaultNavigationTimeout(config.navTimeoutMs);
       return context;

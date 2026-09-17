@@ -4,6 +4,7 @@ const fs = require('fs');
 const { ERROR_PATTERNS, LOGIN_URL_PATTERN } = require('./sections');
 const { withTimeout } = require('./util');
 const { isLoginPage, looksChallenged } = require('./session');
+const { moveAndClick } = require('./cursor');
 
 const MIN_BODY_TEXT = 200;
 
@@ -42,6 +43,43 @@ function bodyProblem(text) {
 
 const ARTIFACT_TIMEOUT_MS = 15000;
 
+// Finds the section's link in the left-hand menu. Seller Center has shipped
+// several nav markups, so several shapes are tried before giving up.
+function navLink(page, navText) {
+  const escaped = navText.replace(/"/g, '\\"');
+  return [
+    page.getByRole('navigation').getByRole('link', { name: navText, exact: true }),
+    page.getByRole('link', { name: navText, exact: true }),
+    page.locator(`nav a:text-is("${escaped}")`),
+    page.locator(`a:text-is("${escaped}")`),
+    page.locator(`[role="navigation"] :text-is("${escaped}")`),
+    page.locator(`nav :text-is("${escaped}")`)
+  ];
+}
+
+// Clicks the menu item and waits for the page behind it to settle. Returns
+// false when no menu link matches, so the caller can fall back to a URL.
+async function clickNavTo(page, section, config, log) {
+  if (!config.clickNav || !section.navText) return false;
+
+  for (const candidate of navLink(page, section.navText)) {
+    const target = candidate.first();
+    if (!(await target.isVisible().catch(() => false))) continue;
+    try {
+      await moveAndClick(page, target);
+      await page.waitForLoadState('domcontentloaded', { timeout: config.navTimeoutMs }).catch(() => {});
+      await page.waitForLoadState('networkidle', { timeout: config.navTimeoutMs }).catch(() => {});
+      await page.waitForTimeout(config.settleMs);
+      log.info(`clicked "${section.navText}" in the menu`, { event: 'nav-click', section: section.name });
+      return true;
+    } catch (err) {
+      log.warn(`could not click "${section.navText}": ${err.message.split('\n')[0]}`, { event: 'nav-click-failed', section: section.name });
+      return false;
+    }
+  }
+  return false;
+}
+
 async function saveFailureArtifacts(page, log, section, cycle) {
   const artifacts = {};
 
@@ -65,6 +103,22 @@ async function checkSection(page, section, config, log, cycle) {
   let last = null;
 
   try {
+    // Preferred: click the section's own menu link. This uses whatever URL the
+    // account actually has instead of one guessed here, and it is visible.
+    if (await clickNavTo(page, section, config, log)) {
+      const outcome = await judge(page, section, config, page.url(), null);
+      outcome.via = 'menu click';
+      outcome.section = section.name;
+      outcome.cycle = cycle;
+      outcome.durationMs = Date.now() - started;
+      outcome.url = outcome.url || page.url();
+      outcome.apiErrors = watcher.errors.slice(0, 10);
+      if (!outcome.ok) outcome.artifacts = await saveFailureArtifacts(page, log, section.name, cycle);
+      return outcome;
+    }
+
+    log.warn(`no "${section.navText}" link in the menu — falling back to a direct address`, { event: 'nav-fallback', section: section.name });
+
     for (const candidate of paths) {
       const url = candidate.startsWith('http') ? candidate : config.baseUrl + candidate;
       let response;

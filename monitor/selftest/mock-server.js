@@ -12,7 +12,7 @@ app.use(express.urlencoded({ extended: false }));
 const SECTIONS = {
   '/': { title: 'Dashboard', blurb: 'Seller Center home overview: today\'s sales, open orders and alerts.' },
   '/order-management/orders': { title: 'Orders', blurb: 'Order management. Released orders, shipped orders and returns are listed here.' },
-  '/items': { title: 'Items', blurb: 'Item catalog. Published SKU listings, item quality and inventory status.' },
+  '/items': { title: 'Catalog', blurb: 'Item catalog. Published SKU listings, item quality and inventory status.' },
   '/payments': { title: 'Payments', blurb: 'Payment settlement summary, payout history and invoices.' },
   '/performance': { title: 'Performance', blurb: 'Seller scorecard performance metrics: on-time delivery and cancel rate.' },
   '/advertising': { title: 'Advertising', blurb: 'Walmart Connect advertising campaign and ad group overview.' },
@@ -30,9 +30,22 @@ function isSignedIn(req) {
   return !signedOut && /sc_session=1/.test(req.headers.cookie || '');
 }
 
+// A left-hand menu with the same labels as the real Seller Center, so the
+// monitor's menu-clicking path is exercised rather than only URL jumps.
+const NAV = [
+  ['Home', '/'],
+  ['Orders', '/order-management/orders'],
+  ['Catalog', '/items'],
+  ['Payments', '/payments'],
+  ['Performance', '/performance'],
+  ['Advertising', '/advertising'],
+  ['Reports', '/reports']
+];
+
 function page(title, body) {
+  const links = NAV.map(([label, href]) => `<a href="${href}">${label}</a>`).join('');
   return `<!doctype html><html><head><title>${title} | Seller Center</title></head>
-<body><nav>Home Orders Items Payments Growth Advertising Analytics &amp; Reports</nav>
+<body><nav style="display:block">${links}</nav>
 <h1>${title}</h1>${body}</body></html>`;
 }
 

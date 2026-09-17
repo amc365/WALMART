@@ -55,6 +55,11 @@ function buildConfig(argv = process.argv.slice(2)) {
     // An installed browser to drive instead: 'msedge' or 'chrome'.
     browserChannel: args.channel || env.MONITOR_BROWSER_CHANNEL || null,
 
+    // Draw a pointer in the page and click the menu rather than jumping
+    // straight to URLs, so the run can be followed by eye.
+    showCursor: bool(args.showCursor, true),
+    clickNav: bool(args.clickNav, true),
+
     // Login. A saved session is strongly preferred over scripted credentials
     // because Seller Center challenges new sessions with 2FA. The cookie jar
     // lives beside the browser profile it came from, so two different profiles

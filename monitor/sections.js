@@ -1,5 +1,11 @@
 // The Seller Center sections to walk, in order.
 //
+// Each section is opened by CLICKING its link in the left-hand menu, using
+// `navText` — the label as it appears in Seller Center (Home, Orders, Catalog,
+// Payments, Performance, Advertising, Reports). That way the account's real
+// URLs are used rather than guessed ones, and the navigation is visible.
+// `paths` is only a fallback for when the menu link cannot be found.
+//
 // `paths` is a best-effort list of candidate URLs: Walmart moves these around
 // per account type, so the first path that resolves without a "not found" is
 // used and remembered for the rest of the run. `navText` is the left-hand nav
@@ -25,9 +31,9 @@ const SECTIONS = [
   },
   {
     key: 'items',
-    name: 'Items',
+    name: 'Catalog',
     paths: ['/items', '/item-management/items'],
-    navText: 'Items',
+    navText: 'Catalog',
     expect: /item|catalog|sku/i
   },
   {
@@ -41,7 +47,7 @@ const SECTIONS = [
     key: 'performance',
     name: 'Performance',
     paths: ['/performance', '/growth/performance', '/scorecard'],
-    navText: 'Growth',
+    navText: 'Performance',
     expect: /performance|scorecard|metric/i
   },
   {
@@ -58,7 +64,7 @@ const SECTIONS = [
     key: 'reports',
     name: 'Reports',
     paths: ['/reports', '/analytics/reports'],
-    navText: 'Analytics & Reports',
+    navText: 'Reports',
     expect: /report|analytic|download/i
   }
 ];
