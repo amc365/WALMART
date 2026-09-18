@@ -18,16 +18,40 @@
   .stage { background:#1a73e8; color:#fff; }
   .muted { color:#888; font-size:12px; }
   #summary { font-size:13px; color:#444; }
+  .promo-form { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; }
+  .promo-form label { display:flex; flex-direction:column; font-size:12px; color:#555; gap:4px; }
+  .promo-form input { padding:6px 8px; border:1px solid #ccc; border-radius:4px; font-size:13px; }
+  .errs { color:#8c1d18; font-size:13px; }
+  .errs ul { margin:4px 0 0 18px; padding:0; }
+  .warns { color:#7a4f01; font-size:13px; margin-top:6px; }
+  .banner { border-radius:8px; padding:12px 16px; margin-top:12px; font-size:13px; line-height:1.5; display:none; }
+  .banner.error { background:#fdecea; border:1px solid #f5c6c2; color:#8c1d18; }
+  .banner.warn  { background:#fff6e5; border:1px solid #f5dfae; color:#7a4f01; }
+  .banner strong { display:block; margin-bottom:4px; font-size:14px; }
+  .banner code { background:rgba(0,0,0,.06); padding:1px 4px; border-radius:3px; font-size:12px; }
 </style>
 </head>
 <body>
   <h1>Walmart Account — Live Status</h1>
   <div id="summary" class="muted">Loading…</div>
+  <div id="stockBanner" class="banner"></div>
+  <div id="truncBanner" class="banner warn"></div>
 
   <h2>Listings needing action (retired/archived SKUs skipped)</h2>
   <div class="card">
     <table id="listingsTable">
       <thead><tr><th>SKU</th><th>Product</th><th>Qty</th><th>Published</th><th>Issue</th><th>Action</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <h2 id="unverifiedHeading" style="display:none">Unverified — stock could not be read</h2>
+  <div class="card" id="unverifiedCard" style="display:none">
+    <div class="muted" style="margin-bottom:8px">
+      These listings were <strong>not</strong> checked. They are not known to be healthy.
+    </div>
+    <table id="unverifiedTable">
+      <thead><tr><th>SKU</th><th>Product</th><th>Published</th><th>Status</th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
@@ -40,8 +64,35 @@
     </table>
   </div>
 
+  <h2>Promotions — Set a Promotional Price</h2>
+  <div id="promoDryRun" class="banner warn"></div>
+  <div class="card">
+    <div class="muted" style="margin-bottom:10px">
+      Sets a reduced price on a SKU via Seller Center. Walmart requires the start to be
+      at least 4 hours away, max 180 days, and no overlapping dates on the same SKU.
+      <strong>Nothing is sent until you click Approve.</strong>
+    </div>
+    <div class="promo-form">
+      <label>SKU<input id="pSku" type="text" placeholder="ABC-123"></label>
+      <label>Promo price<input id="pPrice" type="number" step="0.01" min="0" placeholder="8.99"></label>
+      <label>Was price<input id="pCompare" type="number" step="0.01" min="0" placeholder="12.99"></label>
+      <label>Starts<input id="pStart" type="datetime-local"></label>
+      <label>Ends<input id="pEnd" type="datetime-local"></label>
+      <button class="stage" id="pStage">Stage promotion</button>
+    </div>
+    <div id="promoFormMsg" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card">
+    <table id="promoTable">
+      <thead><tr><th>SKU</th><th>Promo</th><th>Was</th><th>Runs</th><th>Status</th><th>Action</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
   <h2>Ads / Promotions — Pending Approval</h2>
-  <div class="card" id="adsStatus" class="muted"></div>
+  <div id="adsBanner" class="banner"></div>
+  <div class="card muted" id="adsStatus"></div>
   <div class="card">
     <table id="pendingTable">
       <thead><tr><th>Type</th><th>Target</th><th>Details</th><th>Status</th><th>Action</th></tr></thead>
@@ -50,38 +101,113 @@
   </div>
 
 <script>
+// Product names and SKUs are untrusted strings — escape before injecting.
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => (
+    { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]
+  ));
+}
+
+function showBanner(el, cls, html) {
+  el.className = 'banner ' + cls;
+  el.innerHTML = html;
+  el.style.display = 'block';
+}
+
 async function loadListings() {
   const res = await fetch('/api/listings');
   const data = await res.json();
   const tbody = document.querySelector('#listingsTable tbody');
+  const stockBanner = document.getElementById('stockBanner');
+  const truncBanner = document.getElementById('truncBanner');
   tbody.innerHTML = '';
+  stockBanner.style.display = 'none';
+  truncBanner.style.display = 'none';
+
   if (data.error) {
+    showBanner(stockBanner, 'error',
+      '<strong>Could not load listings</strong>' + esc(data.error) +
+      (data.detail ? '<br><code>' + esc(String(data.detail).slice(0, 400)) + '</code>' : ''));
     document.getElementById('summary').textContent = 'Error: ' + data.error;
     return;
   }
-  document.getElementById('summary').textContent =
-    `${data.totalItems} listings — ${data.ignoredRetiredArchived} retired/archived (skipped) — ${data.flaggedCount} need action`;
+
+  const parts = [
+    data.totalItems + ' listings',
+    data.ignoredRetiredArchived + ' retired/archived (skipped)',
+    data.flaggedCount + ' need action'
+  ];
+  if (data.stockUnknownCount > 0) parts.push(data.stockUnknownCount + ' unverified');
+  document.getElementById('summary').textContent = parts.join(' — ');
+
+  // A stock outage must never render as a clean account.
+  const errs = (data.stock && data.stock.errors || []).map(e => '<code>' + esc(e) + '</code>').join('<br>');
+  if (data.status === 'stock_unavailable') {
+    showBanner(stockBanner, 'error',
+      '<strong>Stock data unavailable — listing health was NOT checked</strong>' +
+      'No inventory could be read, so the “need action” count below is meaningless, not a clean bill of health.' +
+      (errs ? '<br><br>' + errs : ''));
+  } else if (data.status === 'degraded') {
+    showBanner(stockBanner, 'warn',
+      '<strong>Partial stock data</strong>' +
+      esc(data.stock.resolved) + ' of ' + esc(data.stock.checked) +
+      ' active listings were stock-checked. ' + esc(data.stockUnknownCount) +
+      ' could not be verified and are listed below.' +
+      (errs ? '<br><br>' + errs : ''));
+  }
+
+  if (data.truncated) {
+    showBanner(truncBanner, 'warn',
+      '<strong>Listing list is incomplete</strong>' +
+      'Hit the pagination cap after ' + esc(data.pagesFetched) +
+      ' pages — Walmart still had more listings. Totals above undercount the account. ' +
+      'Raise <code>WALMART_MAX_ITEM_PAGES</code> to fetch the rest.');
+  }
+
   data.flagged.forEach(item => {
     const tr = document.createElement('tr');
     const fixLabel = item.issueType === 'has_stock_not_live' ? 'Publish' : 'Deactivate';
-    tr.innerHTML = `
-      <td>${item.sku || ''}</td>
-      <td>${item.productName || ''}</td>
-      <td>${item.availableQty ?? ''}</td>
-      <td>${item.publishedStatus || ''}</td>
-      <td class="issue">${item.issue}</td>
-      <td><button class="stage" onclick="stageFix('${item.sku}','${item.issueType}')">${fixLabel}</button></td>
-    `;
+    tr.innerHTML =
+      '<td>' + esc(item.sku) + '</td>' +
+      '<td>' + esc(item.productName) + '</td>' +
+      '<td>' + esc(item.availableQty ?? '') + '</td>' +
+      '<td>' + esc(item.publishedStatus) + '</td>' +
+      '<td class="issue">' + esc(item.issue) + '</td>' +
+      '<td><button class="stage">' + fixLabel + '</button></td>';
+    tr.querySelector('button').addEventListener('click',
+      () => stageFix(item.sku, item.issueType));
     tbody.appendChild(tr);
+  });
+
+  // Unverified listings get their own section — no fix button, since we have
+  // no stock reading to base a publish/deactivate decision on.
+  const unTbody = document.querySelector('#unverifiedTable tbody');
+  const unknown = data.unknown || [];
+  unTbody.innerHTML = '';
+  document.getElementById('unverifiedHeading').style.display = unknown.length ? '' : 'none';
+  document.getElementById('unverifiedCard').style.display = unknown.length ? '' : 'none';
+  unknown.forEach(item => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(item.sku) + '</td>' +
+      '<td>' + esc(item.productName) + '</td>' +
+      '<td>' + esc(item.publishedStatus) + '</td>' +
+      '<td class="issue">' + esc(item.issue) + '</td>';
+    unTbody.appendChild(tr);
   });
 }
 
 async function stageFix(sku, issueType) {
-  await fetch('/api/listings/pending', {
+  const r = await fetch('/api/listings/pending', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sku, issueType })
   });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    alert('Could not stage fix: ' + (e.error || r.status));
+    return;
+  }
   loadFixPending();
 }
 
@@ -92,31 +218,41 @@ async function loadFixPending() {
   tbody.innerHTML = '';
   data.pending.forEach(f => {
     const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${f.sku}</td>
-      <td>${f.action}</td>
-      <td>${f.status}</td>
-      <td>
-        <button class="approve" onclick="approveFix('${f.id}')">Approve</button>
-        <button class="reject" onclick="rejectFix('${f.id}')">Reject</button>
-      </td>
-    `;
+    tr.innerHTML =
+      '<td>' + esc(f.sku) + '</td>' +
+      '<td>' + esc(f.action) + '</td>' +
+      '<td>' + esc(f.status) + '</td>' +
+      '<td><button class="approve">Approve</button><button class="reject">Reject</button></td>';
+    tr.querySelector('.approve').addEventListener('click', () => approveFix(f.id));
+    tr.querySelector('.reject').addEventListener('click', () => rejectFix(f.id));
     tbody.appendChild(tr);
   });
 }
 async function approveFix(id) {
-  await fetch(`/api/listings/pending/${id}/approve`, { method: 'POST' });
+  await fetch('/api/listings/pending/' + encodeURIComponent(id) + '/approve', { method: 'POST' });
   loadFixPending();
 }
 async function rejectFix(id) {
-  await fetch(`/api/listings/pending/${id}/reject`, { method: 'POST' });
+  await fetch('/api/listings/pending/' + encodeURIComponent(id) + '/reject', { method: 'POST' });
   loadFixPending();
 }
 
 async function loadAdsStatus() {
   const res = await fetch('/api/ads/status');
   const data = await res.json();
-  document.getElementById('adsStatus').textContent = data.message;
+  const note = document.getElementById('adsStatus');
+  const banner = document.getElementById('adsBanner');
+
+  // Don't let a not-yet-built section look like a working one.
+  if (data.built === false) {
+    showBanner(banner, 'warn',
+      '<strong>Not connected to Walmart</strong>' + esc(data.message));
+    note.style.display = 'none';
+  } else {
+    banner.style.display = 'none';
+    note.style.display = '';
+    note.textContent = data.message;
+  }
 }
 
 async function loadPending() {
@@ -126,29 +262,114 @@ async function loadPending() {
   tbody.innerHTML = '';
   data.pending.forEach(a => {
     const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${a.type}</td>
-      <td>${a.target}</td>
-      <td>${JSON.stringify(a.details)}</td>
-      <td>${a.status}</td>
-      <td>
-        <button class="approve" onclick="approve('${a.id}')">Approve</button>
-        <button class="reject" onclick="reject('${a.id}')">Reject</button>
-      </td>
-    `;
+    tr.innerHTML =
+      '<td>' + esc(a.type) + '</td>' +
+      '<td>' + esc(a.target) + '</td>' +
+      '<td>' + esc(JSON.stringify(a.details)) + '</td>' +
+      '<td>' + esc(a.status) + '</td>' +
+      '<td><button class="approve">Approve</button><button class="reject">Reject</button></td>';
+    tr.querySelector('.approve').addEventListener('click', () => approve(a.id));
+    tr.querySelector('.reject').addEventListener('click', () => reject(a.id));
     tbody.appendChild(tr);
   });
 }
 async function approve(id) {
-  await fetch(`/api/ads/pending/${id}/approve`, { method: 'POST' });
+  await fetch('/api/ads/pending/' + encodeURIComponent(id) + '/approve', { method: 'POST' });
   loadPending();
 }
 async function reject(id) {
-  await fetch(`/api/ads/pending/${id}/reject`, { method: 'POST' });
+  await fetch('/api/ads/pending/' + encodeURIComponent(id) + '/reject', { method: 'POST' });
   loadPending();
 }
 
+// ---- promotions ----
+function localToIso(v) {
+  if (!v) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+async function stagePromo() {
+  const msg = document.getElementById('promoFormMsg');
+  msg.innerHTML = '';
+  const payload = {
+    sku: document.getElementById('pSku').value.trim(),
+    promoPrice: document.getElementById('pPrice').value,
+    comparisonPrice: document.getElementById('pCompare').value,
+    startsAt: localToIso(document.getElementById('pStart').value),
+    endsAt: localToIso(document.getElementById('pEnd').value)
+  };
+  const r = await fetch('/api/promotions/pending', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  });
+  const data = await r.json();
+
+  if (!r.ok) {
+    // Show every reason Walmart would reject this, before anything is sent.
+    msg.innerHTML = '<div class="errs"><strong>Not staged:</strong><ul>' +
+      (data.errors || [data.error]).map(e => '<li>' + esc(e) + '</li>').join('') + '</ul></div>';
+    return;
+  }
+  msg.innerHTML = '<div class="ok">Staged — review it below, then Approve to send it to Walmart.</div>' +
+    ((data.warnings || []).length
+      ? '<div class="warns">' + data.warnings.map(w => esc(w)).join('<br>') + '</div>'
+      : '');
+  ['pSku','pPrice','pCompare','pStart','pEnd'].forEach(i => document.getElementById(i).value = '');
+  loadPromos();
+}
+
+async function loadPromos() {
+  const res = await fetch('/api/promotions/pending');
+  const data = await res.json();
+  const tbody = document.querySelector('#promoTable tbody');
+  const dr = document.getElementById('promoDryRun');
+  tbody.innerHTML = '';
+
+  if (data.dryRun) {
+    showBanner(dr, 'warn', '<strong>Dry-run mode is on</strong>Promotions are validated and recorded but never sent to Walmart. Unset <code>PROMOTIONS_DRY_RUN</code> to go live.');
+  } else {
+    dr.style.display = 'none';
+  }
+
+  data.pending.forEach(p => {
+    const tr = document.createElement('tr');
+    const runs = new Date(p.startsAt).toLocaleString() + ' → ' + new Date(p.endsAt).toLocaleString();
+    const done = p.status !== 'awaiting_approval';
+    tr.innerHTML =
+      '<td>' + esc(p.sku) + '</td>' +
+      '<td>$' + esc(p.promoPrice) + '</td>' +
+      '<td>$' + esc(p.comparisonPrice) + '</td>' +
+      '<td>' + esc(runs) + '</td>' +
+      '<td class="' + (p.status === 'failed' ? 'issue' : '') + '">' + esc(p.status) +
+        (p.walmartStatus ? ' (HTTP ' + esc(p.walmartStatus) + ')' : '') + '</td>' +
+      '<td>' + (done ? '<span class="muted">—</span>'
+        : '<button class="approve">Approve</button><button class="reject">Reject</button>') + '</td>';
+    if (!done) {
+      tr.querySelector('.approve').addEventListener('click', () => approvePromo(p.id));
+      tr.querySelector('.reject').addEventListener('click', () => rejectPromo(p.id));
+    }
+    tbody.appendChild(tr);
+  });
+}
+
+async function approvePromo(id) {
+  if (!confirm('Send this promotion to Walmart? This changes the live price on your listing.')) return;
+  const r = await fetch('/api/promotions/pending/' + encodeURIComponent(id) + '/approve', { method: 'POST' });
+  const data = await r.json();
+  if (!r.ok) {
+    alert('Not applied: ' + (data.error || r.status) + (data.errors ? '\n\n' + data.errors.join('\n') : ''));
+  }
+  loadPromos();
+}
+async function rejectPromo(id) {
+  await fetch('/api/promotions/pending/' + encodeURIComponent(id) + '/reject', { method: 'POST' });
+  loadPromos();
+}
+
+document.getElementById('pStage').addEventListener('click', stagePromo);
+
 loadListings();
+loadPromos();
 loadFixPending();
 loadAdsStatus();
 loadPending();
