@@ -16,6 +16,15 @@ https://github.com/amc365/WALMART/archive/refs/heads/claude/blissful-hypatia-378
 
 You'll get a folder. Open it.
 
+## Step 1b — Unpack the zip properly
+
+**Right-click the downloaded `.zip` → "Extract All…" → Extract.**
+
+Do not open the zip and double-click inside it. Windows will run a single file
+out of a temporary folder without the rest of the program next to it, and it
+fails with `Cannot find module ... monitor\run.js`. If you see that, this is
+why.
+
 ## Step 2 — Double-click one file
 
 - **On a Mac:** double-click `start-mac.command`

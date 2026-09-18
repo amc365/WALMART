@@ -7,6 +7,27 @@ echo Walmart Seller Center monitor > "%LOG%"
 echo Walmart Seller Center monitor
 echo -----------------------------
 
+REM Windows will happily run this file straight out of the .zip by unpacking
+REM only this one file into a temporary folder, leaving the rest of the program
+REM behind. Catch that before it turns into a wall of red text.
+if not exist "%~dp0monitor\run.js" (
+  echo.
+  echo THE ZIP WAS NOT UNPACKED.
+  echo.
+  echo This file is running on its own, without the rest of the program:
+  echo    %~dp0
+  echo.
+  echo To fix it:
+  echo    1. Find the .zip file you downloaded
+  echo    2. RIGHT-CLICK it and choose "Extract All..." then "Extract"
+  echo    3. Open the folder that appears
+  echo    4. Double-click start-windows in THAT folder
+  echo.
+  echo This window stays open. Close it yourself when you are done reading.
+  pause >nul
+  exit /b 1
+)
+
 where node >nul 2>nul
 if errorlevel 1 (
   echo Node.js is not installed. >> "%LOG%"

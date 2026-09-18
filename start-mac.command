@@ -5,6 +5,18 @@ cd "$(dirname "$0")" || exit 1
 echo "Walmart Seller Center monitor"
 echo "-----------------------------"
 
+# macOS can run this file from inside the .zip, leaving the rest of the program
+# behind. Catch that before it turns into a stack trace.
+if [ ! -f "$(dirname "$0")/monitor/run.js" ]; then
+  echo
+  echo "THE ZIP WAS NOT UNPACKED."
+  echo "This file is running on its own, without the rest of the program."
+  echo "Double-click the .zip first, then run start-mac.command from the folder it makes."
+  echo
+  read -r -p "Press Return to close."
+  exit 1
+fi
+
 if ! command -v node > /dev/null 2>&1; then
   echo
   echo "Node.js is not installed on this Mac."
