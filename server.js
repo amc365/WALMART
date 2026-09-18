@@ -6,6 +6,7 @@ const path = require('path');
 const listingsRoute = require('./routes/listings');
 const adsRoute = require('./routes/ads');
 const promotionsRoute = require('./routes/promotions');
+const analyticsRoute = require('./routes/analytics');
 
 const app = express();
 app.use(cors());
@@ -15,6 +16,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/api/listings', listingsRoute);
 app.use('/api/ads', adsRoute);
 app.use('/api/promotions', promotionsRoute);
+app.use('/api/analytics', analyticsRoute);
 
 app.get('/api/health', (req, res) => res.json({
   ok: true,
